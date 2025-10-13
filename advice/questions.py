@@ -7,6 +7,7 @@ from typing import List
 class MCQuestion:
     id: str
     text: str
+    label: str
     options: List[str]
     guidance: str
 
@@ -21,6 +22,7 @@ QUESTIONS: List[MCQuestion] = [
     MCQuestion(
         id="q1",
         text="How much emergency savings do you currently have set aside?",
+        label="Emergency Savings",
         options=[
             "Less than 3 months of salary",
             "3-6 months of salary",
@@ -33,6 +35,7 @@ QUESTIONS: List[MCQuestion] = [
     MCQuestion(
         id="q2",
         text="What portion of your total investable assets does this managed account represent?",
+        label="Managed Account Representation Percentage",
         options=[
             "less than 25%",
             "25% to 50%",
@@ -45,6 +48,7 @@ QUESTIONS: List[MCQuestion] = [
     MCQuestion(
         id="q3",
         text="What is your total investment  horizon for this account?",
+        label="Investment Horizon",
         options=[
             "less than 5 years",
             "5-10 year",
@@ -61,6 +65,7 @@ QUESTIONS: List[MCQuestion] = [
     MCQuestion(
         id="q4",
         text="How likely are you to make early withdrawals from this account?",
+        label="Early Withdrawals",
         options=[
             "No",
             "Less Likely",
@@ -73,6 +78,7 @@ QUESTIONS: List[MCQuestion] = [
     MCQuestion(
         id="q5",
         text="How would you describe your level of investment knowledge?",
+        label="Investment Knowledge",
         options=[
             "A little",
             "Normal ",
@@ -85,6 +91,7 @@ QUESTIONS: List[MCQuestion] = [
     MCQuestion(
         id="q6",
         text="How do you value portfolio growth versus income guarantee",
+        label="Growth vs Income Preserve",
         options=[
             "Value growth more",
             "Treat them equal",
@@ -97,9 +104,10 @@ QUESTIONS: List[MCQuestion] = [
     MCQuestion(
         id="q7",
         text="If a market crashes and your account value drops a lot, what would be your action item afterwards",
+        label="Action when market crashes",
         options=[
             "I would continue investing the same way, I believe in the long term the market will bounce back",
-            "I will investment  less than half of my account in a more conservative portfolio",
+            "I will investment less than half of my account in a more conservative portfolio",
             "I will investment more than half of my account in a more conservative portfolio",
         ],
         guidance=(

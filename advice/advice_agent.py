@@ -19,7 +19,8 @@ Your responsibilities:
 3) Accept natural replies like “2”, “the second one”, or a phrase matching an option.
 4) If the user asks “why”, briefly show the provided guidance for that question, then re-show the same question.
 5) After ALL 7 answers are collected, you MUST call the `general_investing_advice` tool with the structured answers
-   (qid -> {selected_index, selected_label, raw_user_text}). Then summarize the returned allocation clearly.
+   (qid -> {selected_index, selected_label, raw_user_text}). 
+   Then summarize the returned allocation clearly. 
 
 Style: concise, warm, and professional.
 Never reword question text, options, or guidance.
@@ -102,52 +103,50 @@ def _retry_with_llm(llm: ChatOpenAI, q: MCQuestion) -> str:
     return resp.content if isinstance(resp, AIMessage) else str(resp)
 
 def _finalize_with_tool_and_llm(state: AgentState, llm: ChatOpenAI) -> AgentState:
-    llm_with_tools = llm.bind_tools([general_investing_advice_tool])
+    """
+    Finalize deterministically:
+      1) Call general_investing_advice_tool with the collected answers.
+      2) Render a plain, structured summary using MCQuestion.label and the stored selected_label.
+      3) Present equity/bond as percentages with one decimal place.
+    """
+    # 1) Always call the tool directly with full answers payload
+    result = general_investing_advice_tool.invoke({"answers": state["answers"]})
+    state["recommendation"] = result or {}
 
-    system = SystemMessage(content=AGENT_SYSTEM_PROMPT)
-    dev = HumanMessage(content=(
-        "We have collected all 7 answers. Now you MUST call the tool `general_investing_advice`.\n"
-        f"Answers payload:\n{state['answers']}\n\nCall the tool with the full answers payload."
-    ))
+    # 2) Build a deterministic summary (no LLM)
+    eq = float(state["recommendation"].get("equity", 0.0))
+    bd = float(state["recommendation"].get("bond", 0.0))
+    eq_pct = round(eq * 100.0, 1)
+    bd_pct = round(bd * 100.0, 1)
 
-    ai = llm_with_tools.invoke([system, dev])  # expect tool call
-    tool_results: List[ToolMessage] = []
+    # Map qid -> label from QUESTIONS to ensure canonical labels
+    qlabel_by_id = {q.id: q.label for q in QUESTIONS}
 
-    # If the model emits a tool call, ensure payload has `answers`; else call directly as fallback.
-    called_tool = False
-    if hasattr(ai, "tool_calls") and ai.tool_calls:
-        for tc in ai.tool_calls:
-            if tc["name"] == "general_investing_advice":
-                args = tc.get("args") or {}
-                if not isinstance(args, dict):
-                    args = {}
-                if "answers" not in args or not args["answers"]:
-                    args["answers"] = state["answers"]
+    # Order the overview in the same order as QUESTIONS
+    lines = []
+    lines.append("Thanks! Based on your responses, here’s your preliminary portfolio guidance:")
+    lines.append("")
+    lines.append(f"**Allocation:** Equity {eq_pct:.1f}%  •  Bonds {bd_pct:.1f}%")
+    lines.append("")
+    lines.append("**Your answers** (for your records):")
+    for q in QUESTIONS:
+        ans = state["answers"].get(q.id, {})
+        sel = ans.get("selected_label", "")
+        # Use the canonical label from MCQuestion
+        label = qlabel_by_id.get(q.id, q.id)
+        lines.append(f"- {label}: {sel}")
 
-                result = general_investing_advice_tool.invoke(args)
-                state["recommendation"] = result
-                tool_results.append(ToolMessage(name=tc["name"], content=str(result), tool_call_id=tc["id"]))
-                called_tool = True
+    lines.append("")
+    lines.append(
+        "Note: This allocation is a starting point derived from your emergency savings, account concentration, "
+        "time horizon (adjusted for potential withdrawals), and your stated risk preferences. "
+        "If anything changes, we can revisit the questionnaire to update your allocation."
+    )
 
-    # Fallback: model didn’t emit a tool call — call the tool directly
-    if not called_tool:
-        result = general_investing_advice_tool.invoke({"answers": state["answers"]})
-        state["recommendation"] = result
-        # No tool_call_id in this path
-        tool_results.append(ToolMessage(name="general_investing_advice", content=str(result)))
-
-    final_msgs = [system, dev, ai] + tool_results + [
-        HumanMessage(content=(
-            "Using the tool result above, produce a concise, friendly summary that:\n"
-            "1) Recaps the 7 selections (qid order), and\n"
-            "2) Presents the equity/bond allocation clearly as percentages with one decimal place.\n"
-            "Do not ask new questions."
-        ))
-    ]
-    final = llm_with_tools.invoke(final_msgs)
-    final_text = final.content if isinstance(final, AIMessage) else str(final)
-    state["messages"].append({"role": "ai", "content": final_text})
+    msg = "\n".join(lines)
+    state["messages"].append({"role": "ai", "content": msg})
     return state
+      
 
 def advice_agent_step(state: AgentState, llm: ChatOpenAI) -> AgentState:
     # finished already?
@@ -171,7 +170,6 @@ def advice_agent_step(state: AgentState, llm: ChatOpenAI) -> AgentState:
         return state  # no-op
 
     q = QUESTIONS[state["q_idx"]]
-    user_msgs = [m for m in state["messages"] if m["role"] == "user"]
 
     # If we haven't asked this question yet (awaiting_input is False), ask it now.
     if not state.get("awaiting_input", False):
@@ -180,11 +178,12 @@ def advice_agent_step(state: AgentState, llm: ChatOpenAI) -> AgentState:
         state["awaiting_input"] = True
         return state
 
-    # We asked already and are waiting; if no new user message, do nothing (prevents recursion)
-    if not user_msgs:
+    # We're awaiting input. Only proceed if the latest message is from the user.
+    if not state["messages"] or state["messages"][-1].get("role") != "user":
+        # No new user input since we asked -> do nothing (prevents double-ask)
         return state
 
-    last_user = user_msgs[-1]["content"]
+    last_user = state["messages"][-1]["content"]
 
     if _wants_guidance(last_user):
         msg = _explain_and_ask_with_llm(llm, q)
@@ -206,9 +205,14 @@ def advice_agent_step(state: AgentState, llm: ChatOpenAI) -> AgentState:
     state["q_idx"] += 1
     state["awaiting_input"] = False
 
+    # If that was the last question, finalize on the next tick only once
     if state["q_idx"] >= len(QUESTIONS):
-        return state
+        # Mark awaiting_input=False so it won’t re-ask the last question on the next tick
+        state["awaiting_input"] = False
+        state["done"] = True
+        return _finalize_with_tool_and_llm(state, llm)
 
+    # Otherwise, ask the next question exactly once and await the next user turn
     nxt = QUESTIONS[state["q_idx"]]
     msg = _ask_with_llm(llm, nxt)
     state["messages"].append({"role": "ai", "content": msg})
