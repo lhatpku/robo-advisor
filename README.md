@@ -1,6 +1,4 @@
-## ✅ Robo Advisor with Advice and Investment Agent
-
-# 🧠 Robo-Advising Agent Framework — Step 2: Investment Flow Extension
+# 🧠 Robo Advisor with Advice and Investment Agent
 
 This repository now implements **2 steps** of an intelligent, modular robo-advising platform built on
 LLM-powered agents orchestrated with **LangGraph**.  
