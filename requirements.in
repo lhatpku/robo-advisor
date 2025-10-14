@@ -1,0 +1,19 @@
+# Core LLM + graph
+langchain>=0.2
+langgraph>=0.2
+langchain-openai>=0.1
+
+# Config
+python-dotenv>=1.0
+
+# Data + Excel
+numpy>=1.26
+pandas>=2.2
+openpyxl>=3.1
+
+# Models / typing
+pydantic>=2.7
+typing-extensions>=4.9
+
+# (Nice to have; langgraph already pulls it, but keeping explicit helps clarity)
+networkx>=3.2

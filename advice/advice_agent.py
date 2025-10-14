@@ -10,6 +10,8 @@ from langchain_core.messages import SystemMessage, HumanMessage, AIMessage, Tool
 from .questions import MCQuestion, MCAnswer, QUESTIONS
 from .general_investing import general_investing_advice_tool
 
+from state import AgentState
+
 AGENT_SYSTEM_PROMPT = """\
 You are the Advice Agent.
 
@@ -25,15 +27,6 @@ Your responsibilities:
 Style: concise, warm, and professional.
 Never reword question text, options, or guidance.
 """
-
-class AgentState(TypedDict):
-    messages: List[Dict[str, Any]]
-    q_idx: int
-    answers: Dict[str, Dict[str, Any]]   # qid -> MCAnswer as dict
-    done: bool
-    recommendation: Optional[Dict[str, float]]
-    awaiting_input: bool                 # prevents recursion while waiting
-    intent_to_advise: bool
 
 _ORDINALS = {
     "first": 1, "1st": 1, "second": 2, "2nd": 2, "third": 3, "3rd": 3,
@@ -111,11 +104,11 @@ def _finalize_with_tool_and_llm(state: AgentState, llm: ChatOpenAI) -> AgentStat
     """
     # 1) Always call the tool directly with full answers payload
     result = general_investing_advice_tool.invoke({"answers": state["answers"]})
-    state["recommendation"] = result or {}
+    state["advice"] = result or {}
 
     # 2) Build a deterministic summary (no LLM)
-    eq = float(state["recommendation"].get("equity", 0.0))
-    bd = float(state["recommendation"].get("bond", 0.0))
+    eq = float(state["advice"].get("equity", 0.0))
+    bd = float(state["advice"].get("bond", 0.0))
     eq_pct = round(eq * 100.0, 1)
     bd_pct = round(bd * 100.0, 1)
 
@@ -145,9 +138,12 @@ def _finalize_with_tool_and_llm(state: AgentState, llm: ChatOpenAI) -> AgentStat
 
     msg = "\n".join(lines)
     state["messages"].append({"role": "ai", "content": msg})
+
+    state["awaiting_input"] = False
+    state["intent_to_advise"] = False     
+    state["done"] = True                  
     return state
       
-
 def advice_agent_step(state: AgentState, llm: ChatOpenAI) -> AgentState:
     # finished already?
     if state.get("done"):

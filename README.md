@@ -1,20 +1,11 @@
-# 🧠 Robo-Advising Agent Framework — Step 1: Advice Onboarding Flow
+## ✅ Robo Advisor with Advice and Investment Agent
 
-This repository implements **Step 1** of an intelligent, modular robo-advising platform built on
+# 🧠 Robo-Advising Agent Framework — Step 2: Investment Flow Extension
+
+This repository now implements **2 steps** of an intelligent, modular robo-advising platform built on
 LLM-powered agents orchestrated with **LangGraph**.  
-The current milestone focuses on the **onboarding and risk-profiling experience**, handled by
-two conversational agents:
-
-1. **Robo-Advisor Agent** (entry point)  
-   — Handles general investor conversations and determines when a user is ready to begin onboarding.  
-   — Provides a “heads-up” explaining that a short questionnaire is required to assess the user’s
-     risk profile and asks for consent to proceed.  
-
-2. **Advice Agent**  
-   — Conducts the 7-question risk-profiling questionnaire.  
-   — Handles clarifying prompts (“why?”) using question-specific guidance text.  
-   — When all answers are collected, calls the **`general_investing_advice`** tool to
-     generate an equity/bond allocation recommendation and summarizes results conversationally.
+The system integrates conversational intent detection, questionnaire-based risk profiling,
+and a partially completed investment-optimization workflow.
 
 ---
 
@@ -23,27 +14,24 @@ two conversational agents:
 ```
 User
  └──> Robo-Advisor Agent (ChatOpenAI)
-       ├─ natural dialogue
-       ├─ detects investment-advice intent
-       ├─ sends “heads-up + proceed?” confirmation
-       │    ├─ if no  → continue chatting
-       │    └─ if yes → sets `intent_to_advise=True`
+       ├─ natural conversation
+       ├─ detects if user wants to set equity manually, request guidance, or proceed to invest
+       ├─ directs to:
+       │    ├─ Advice Agent  → questionnaire-based guidance
+       │    └─ Investment Agent → mean-variance optimizer
        ↓
- └──> Advice Agent (ChatOpenAI + Tool)
-       ├─ sequentially asks 7 risk-profiling questions
-       ├─ supports “why?” guidance per question
-       ├─ records structured multiple-choice answers
-       └─ calls `general_investing_advice_tool`
-             → returns {"equity": x, "bond": 1-x}
-             → summarizes to the user
+ ├──> Advice Agent (ChatOpenAI + Tool)
+ │      ├─ runs 7 risk-profiling questions
+ │      ├─ produces {"equity": x, "bond": 1-x}
+ │      └─ writes recommendation to shared state
+ │
+ └──> Investment Agent (ChatOpenAI + Tool)
+        ├─ reads equity/bond split from Advice output
+        ├─ expands into detailed asset-class sleeves via **mean/variance optimization**
+        ├─ allows user edits to λ (risk-aversion) and cash-reserve inputs
+        ├─ outputs an **asset-class portfolio dictionary**
+        └─ (Next step → ETF/fund analysis to map sleeves to real securities)
 ```
-
-Each agent runs as a **LangGraph node**, invoked sequentially:
-
-| Node | Role | Exit condition |
-|------|------|----------------|
-| `robo_entry` | Determine intent and confirmation | Sets `intent_to_advise=True` |
-| `advice_agent` | Run questionnaire → compute recommendation | Sets `done=True` |
 
 ---
 
@@ -51,26 +39,25 @@ Each agent runs as a **LangGraph node**, invoked sequentially:
 
 | File | Purpose |
 |------|----------|
-| **`advice/questions.py`** | Exact questionnaire text, multiple-choice options, and “Why do we ask?” guidance. |
-| **`advice/general_investing.py`** | Defines the `@tool("general_investing_advice")` function (placeholder allocator). |
-| **`advice/advice_agent.py`** | Implements the Advice Agent logic, deterministic parsing, and tool invocation. |
-| **`app.py`** | Entry script: defines the Robo-Advisor Agent, LangGraph routing, and command-line REPL. |
-| **`.env`** | Stores your `OPENAI_API_KEY` and optional settings (`OPENAI_MODEL`, `OPENAI_TEMPERATURE`). |
+| **`advice/questions.py`** | Questionnaire text and “why” guidance. |
+| **`advice/general_investing.py`** | Tool to compute base equity/bond allocation. |
+| **`advice/advice_agent.py`** | Advice Agent logic and tool invocation. |
+| **`investment/optimizer_tool.py`** | `@tool("mean_variance_optimizer")` that reads mean & covariance from Excel and solves the optimization. |
+| **`investment/investment_agent.py`** | Conversational Investment Agent that manages λ / cash reserve and triggers optimization. |
+| **`state.py`** | Shared TypedDict state accessible to all agents. |
+| **`app.py`** | Entry graph (Robo-Advisor → Advice → Investment). |
 
 ---
 
 ## ⚙️ Setup & Run
 
-### 1. Environment
+### 1. Env Set up
 ```bash
-# create environment
 conda create -n roboadvisor python=3.11
 conda activate roboadvisor
-
-# install deps
-pip install langchain langgraph langchain-openai python-dotenv
+pip install langchain langgraph langchain-openai python-dotenv numpy pandas openpyxl
+python app.py
 ```
-
 ### 2. Environment Variables
 Create a `.env` file in the project root:
 ```
@@ -83,39 +70,100 @@ OPENAI_TEMPERATURE=0.2
 ```bash
 python app.py
 ```
-
-You’ll see:
-```
-Hi! I’m your robo-advisor. How can I help with your finances today?
-> I want investment advice
-To give you meaningful investment advice, we’ll complete a brief questionnaire to assess your risk profile (7 quick questions).
-
-Would you like to proceed now? (yes/no)
-> yes
-Great — we’ll go through a short 7-question risk profile so I can tailor your allocation.
-...
-```
-
 ---
 
 ## 🧠 Agent Behaviors
 
 ### Robo-Advisor Agent
-- Converses freely with the investor using an OpenAI LLM.
-- Detects if the user intends to start onboarding.
-- Provides a **heads-up confirmation** step before delegating to Advice Agent.
-- Sets `state["intent_to_advise"] = True` when user confirms.
+- Initializes with a greeting and clear user choices.  
+- Understands commands such as:  
+  *“set equity 0.6”*, *“use guidance”*, *“reset equity”*, *“proceed to invest”*.  
+- Delegates dynamically:
+  - → **Advice Agent** if guidance requested.  
+  - → **Investment Agent** if ready to invest.  
+- Always preserves existing equity in state when moving forward.
 
 ### Advice Agent
-- Reads question text/options/guidance verbatim from `questions.py`.
-- Uses deterministic parsing (`1`, `second`, or option text fragments).
-- Handles “why” requests with contextual guidance.
-- On completion, calls `general_investing_advice_tool` and formats a summary.
+- Conducts a 7-question risk-profiling interview.  
+- Supports “why” clarifications per question.  
+- On completion:
+  - Writes equity/bond mix into `state["advice"]`.  
+  - Clears `intent_to_advise` so routing returns to entry.  
+  - User can then review or proceed to investment.
 
-### `general_investing_advice_tool`
-- Receives all 7 answers.
-- Placeholder logic computes an equity/bond mix based on horizon and withdrawals.
-- Replace with your actual allocation engine later.
+### Investment Agent  (🧩 In-Progress)
+- Completed:  
+  - Reads mean / covariance data from `investment/config/mu_cov.xlsx`.  
+  - Runs a **mean-variance optimizer** producing 12 asset classes:  
+    - Equity sleeves (large/small growth/value, developed/emerging)  
+    - Bond sleeves (short/mid/long-term treasuries, corporates, TIPS, cash)  
+  - Lets user adjust λ (5–20 typical) and cash reserve (3–6 %).  
+- Pending:  
+  - ETF/fund selection analysis (fund-level optimizer + LLM due-diligence).  
+  - Portfolio-to-security mapping and monitoring.  
+
+---
+
+## 🧭 Example User Flow
+
+```
+┌───────────────────────────────┐
+│ User launches conversation    │
+└──────────────┬────────────────┘
+               ▼
+        Robo-Advisor Agent
+         │ greet + choices
+         ▼
+ ┌───────────────────────────────┐
+ │ “set equity” → Review prompt  │
+ │ “use guidance” → Advice Agent │
+ │ “proceed” → Investment Agent  │
+ └───────────────────────────────┘
+               ▼
+        Advice Agent
+         │ 7 questions
+         │ computes 15 % / 85 %
+         ▼
+   Returns to Robo-Advisor
+         │ review or proceed
+         ▼
+     Investment Agent
+         │ asks λ & cash reserve
+         │ runs mean-variance optimization
+         │ outputs asset-class portfolio
+         ▼
+      (next step: ETF selection)
+```
+
+---
+
+### 🧪 Example Transcript (from recent test)
+
+> **User:** set equity  
+> **AI:** Please provide your desired equity weight to set.  
+> **User:** 0.6  
+> **AI:** Updated: 60 % equity / 40 % bonds. Would you like to review or proceed?  
+> **User:** review  
+> **AI:** Current mix … Type `use guidance` for questionnaire.  
+> **User:** guidance  
+> *(Advice Agent runs full 7-question flow → recommends 15 % equity / 85 % bonds)*  
+> **User:** proceed  
+> *(Investment Agent engages)*  
+> **AI:** Defaults λ = 1.0, cash = 0.05 — say “set lambda to 1 and cash to 0.03 run”  
+> **User:** set lambda as 1 and cash as 0.03 run  
+> *(Optimizer builds portfolio — sample output below)*  
+
+| Asset Class | Weight |
+|--------------|-------:|
+| Mid-term Treasury | 29.72 % |
+| TIPS | 29.72 % |
+| Corporate Bond | 22.56 % |
+| Emerging Market Equity | 11.00 % |
+| Cash | 3.00 % |
+| Large Cap Value | 1.90 % |
+| Small Cap Growth | 1.32 % |
+| ... | ... |
+| **Total** | **100 %** |
 
 ---
 
@@ -123,44 +171,21 @@ Great — we’ll go through a short 7-question risk profile so I can tailor you
 
 | Phase | Focus | Description |
 |--------|--------|-------------|
-| ✅ **Step 1 – Advice Onboarding** | Completed | Robo-Advisor Agent + Advice Agent for risk-profiling and allocation summary. |
-| 🔄 **Step 2 – Investment Agent** | Next | Connects with internal portfolio-construction engine (multi-goal optimizer, risk-adjusted model portfolios). |
-| ⏳ **Step 3 – Trading Agent** | Future | Translates portfolio changes into executable trades, integrates with custodians or recordkeepers. |
-| 🚀 **Step 4 – Unified Robo-Advisor** | Vision | End-to-end agentic system coordinating conversation, planning, portfolio construction, and execution. |
+| ✅ **Step 1 – Advice Onboarding** | Completed | Risk-profiling and allocation summary finished. |
+| 🧩 **Step 2 – Investment Agent** | *In Progress* | Asset-class optimizer done; ETF/fund analysis next. |
+| ⏳ **Step 3 – Trading Agent** | Planned | Translate portfolios to trades and send to custodians. |
+| 🚀 **Step 4 – Unified Robo-Advisor** | Vision | Fully autonomous, multi-agent wealth-advisory pipeline. |
 
 ---
 
 ## 🧰 Developer Notes
 
-- Each agent is **state-driven**. State fields:
-  - `messages`: chronological message list  
-  - `intent_to_advise`: router flag for handoff  
-  - `q_idx`, `answers`, `awaiting_input`, `done`: questionnaire progress tracking
-- Agents only modify state on **user turns** (prevents infinite recursion in LangGraph).
-- The architecture is easily extendable:
-  - Add a new agent node (e.g., `investment_agent_step`, `trading_agent_step`).
-  - Extend the router to delegate by `intent_to_invest` or `intent_to_trade`.
-- To integrate APIs (portfolio data, transaction services), register new `@tool`s
-  and bind them in `_finalize_with_tool_and_llm`.
+- State now includes:  
+  `intent_to_advise`, `intent_to_investment`, `advice`, `investment`, and standard `messages`.  
+- Each node operates **only on user turns**, avoiding LangGraph recursion.  
+- The Investment Agent uses modular tools (`mean_variance_optimizer`, future `fund_selector`).  
+- Extend easily:
+  - Add new endpoints under `/investment` or `/trading`.  
+  - Update router conditions in `app.py`.
 
 ---
-
-## 🧪 Example Extension Skeleton
-
-```python
-# advice/investment_agent.py (future)
-def investment_agent_step(state: AgentState, llm: ChatOpenAI):
-    # Example: run optimization or retrieve model portfolio
-    ...
-```
-
-Then in `app.py`:
-```python
-builder.add_node("investment_agent", lambda s: investment_agent_step(s, llm))
-def router_from_entry(state):
-    if state.get("intent_to_advise"):
-        return "advice_agent"
-    if state.get("intent_to_invest"):
-        return "investment_agent"
-    return END
-```
