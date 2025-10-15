@@ -2,7 +2,7 @@
 from __future__ import annotations
 from typing import Dict, Any
 import os
-from investment.tools import _plan_tools_with_llm, create_tool_registry, execute_tool_call
+from portfolio.tools import _plan_tools_with_llm, create_tool_registry, execute_tool_call
 
 from state import AgentState
 
@@ -52,15 +52,15 @@ def infer_proceed_intent(llm, user_text: str) -> bool:
         return False
 
 
-def investment_agent_step(state: Dict[str, Any], llm) -> Dict[str, Any]:
-    advice = state.get("advice") or {}
-    if not advice:
-        state["messages"].append({"role":"ai","content":"I need the equity/bond recommendation from the Advice Agent before I can build the portfolio."})
+def portfolio_agent_step(state: Dict[str, Any], llm) -> Dict[str, Any]:
+    risk = state.get("risk") or {}
+    if not risk:
+        state["messages"].append({"role":"ai","content":"I need the equity/bond recommendation from the risk Agent before I can build the portfolio."})
         return state
 
     # ensure defaults
-    inv = state.setdefault("investment", {}) or {}
-    state["investment"] = inv
+    inv = state.setdefault("portfolio", {}) or {}
+    state["portfolio"] = inv
     inv.setdefault("lambda", 1.0)
     inv.setdefault("cash_reserve", 0.05)
     inv.setdefault("mu_cov_xlsx_path", DEFAULT_MU_COV_PATH)
@@ -88,7 +88,7 @@ def investment_agent_step(state: Dict[str, Any], llm) -> Dict[str, Any]:
         if infer_proceed_intent(llm, last_user):
             state["messages"].append({"role": "ai", "content": "Great — proceeding to the next step."})
             state["awaiting_input"] = False
-            state["intent_to_investment"] = False     
+            state["intent_to_portfolio"] = False     
             state["done"] = True   
             return state
 
@@ -106,7 +106,7 @@ def investment_agent_step(state: Dict[str, Any], llm) -> Dict[str, Any]:
         name = call.get("tool")
         args = call.get("args", {})
 
-        if name == "set_investment_param":
+        if name == "set_portfolio_param":
             res = execute_tool_call(call, registry)
             if res and res.get("ok"):
                 param = res["param"]
@@ -124,8 +124,8 @@ def investment_agent_step(state: Dict[str, Any], llm) -> Dict[str, Any]:
 
             call_args = {
                 "mu_cov_xlsx_path": inv.get("mu_cov_xlsx_path", DEFAULT_MU_COV_PATH),
-                "advice_equity": float(advice.get("equity", 0.0)),
-                "advice_bonds": float(advice.get("bond", 0.0)),
+                "risk_equity": float(risk.get("equity", 0.0)),
+                "risk_bonds": float(risk.get("bond", 0.0)),
                 "lam": lam,
                 "cash_reserve": clamped,
             }

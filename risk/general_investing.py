@@ -1,4 +1,4 @@
-# advice/general_investing.py
+# risk/general_investing.py
 from __future__ import annotations
 from typing import Dict, Any
 from pathlib import Path
@@ -111,8 +111,8 @@ def _risk_adjustment_from_q6_q7(q6_idx: int, q7_idx: int) -> int:
     return a + b
 
 
-@tool("general_investing_advice")
-def general_investing_advice_tool(answers: Dict[str, Dict[str, Any]]) -> Dict[str, float]:
+@tool("general_investing_risk")
+def general_investing_risk_tool(answers: Dict[str, Dict[str, Any]]) -> Dict[str, float]:
     """
     Compute equity/bond allocation using config in 'config/general_investing_config.xlsx'.
     Inputs:

@@ -1,9 +1,9 @@
-# 🧠 Robo Advisor with Advice and Investment Agent
+# 🧠 Robo Advisor with risk and portfolio Agent
 
 This repository now implements **2 steps** of an intelligent, modular robo-advising platform built on
 LLM-powered agents orchestrated with **LangGraph**.  
 The system integrates conversational intent detection, questionnaire-based risk profiling,
-and a partially completed investment-optimization workflow.
+and a partially completed portfolio-optimization workflow.
 
 ---
 
@@ -15,16 +15,16 @@ User
        ├─ natural conversation
        ├─ detects if user wants to set equity manually, request guidance, or proceed to invest
        ├─ directs to:
-       │    ├─ Advice Agent  → questionnaire-based guidance
-       │    └─ Investment Agent → mean-variance optimizer
+       │    ├─ risk Agent  → questionnaire-based guidance
+       │    └─ portfolio Agent → mean-variance optimizer
        ↓
- ├──> Advice Agent (ChatOpenAI + Tool)
+ ├──> risk Agent (ChatOpenAI + Tool)
  │      ├─ runs 7 risk-profiling questions
  │      ├─ produces {"equity": x, "bond": 1-x}
  │      └─ writes recommendation to shared state
  │
- └──> Investment Agent (ChatOpenAI + Tool)
-        ├─ reads equity/bond split from Advice output
+ └──> portfolio Agent (ChatOpenAI + Tool)
+        ├─ reads equity/bond split from risk output
         ├─ expands into detailed asset-class sleeves via **mean/variance optimization**
         ├─ allows user edits to λ (risk-aversion) and cash-reserve inputs
         ├─ outputs an **asset-class portfolio dictionary**
@@ -37,13 +37,13 @@ User
 
 | File | Purpose |
 |------|----------|
-| **`advice/questions.py`** | Questionnaire text and “why” guidance. |
-| **`advice/general_investing.py`** | Tool to compute base equity/bond allocation. |
-| **`advice/advice_agent.py`** | Advice Agent logic and tool invocation. |
-| **`investment/optimizer_tool.py`** | `@tool("mean_variance_optimizer")` that reads mean & covariance from Excel and solves the optimization. |
-| **`investment/investment_agent.py`** | Conversational Investment Agent that manages λ / cash reserve and triggers optimization. |
+| **`risk/questions.py`** | Questionnaire text and “why” guidance. |
+| **`risk/general_investing.py`** | Tool to compute base equity/bond allocation. |
+| **`risk/risk_agent.py`** | risk Agent logic and tool invocation. |
+| **`portfolio/optimizer_tool.py`** | `@tool("mean_variance_optimizer")` that reads mean & covariance from Excel and solves the optimization. |
+| **`portfolio/portfolio_agent.py`** | Conversational portfolio Agent that manages λ / cash reserve and triggers optimization. |
 | **`state.py`** | Shared TypedDict state accessible to all agents. |
-| **`app.py`** | Entry graph (Robo-Advisor → Advice → Investment). |
+| **`app.py`** | Entry graph (Robo-Advisor → risk → portfolio). |
 
 ---
 
@@ -77,21 +77,21 @@ python app.py
 - Understands commands such as:  
   *“set equity 0.6”*, *“use guidance”*, *“reset equity”*, *“proceed to invest”*.  
 - Delegates dynamically:
-  - → **Advice Agent** if guidance requested.  
-  - → **Investment Agent** if ready to invest.  
+  - → **risk Agent** if guidance requested.  
+  - → **portfolio Agent** if ready to invest.  
 - Always preserves existing equity in state when moving forward.
 
-### Advice Agent
+### risk Agent
 - Conducts a 7-question risk-profiling interview.  
 - Supports “why” clarifications per question.  
 - On completion:
-  - Writes equity/bond mix into `state["advice"]`.  
-  - Clears `intent_to_advise` so routing returns to entry.  
-  - User can then review or proceed to investment.
+  - Writes equity/bond mix into `state["risk"]`.  
+  - Clears `intent_to_risk` so routing returns to entry.  
+  - User can then review or proceed to portfolio.
 
-### Investment Agent  (🧩 In-Progress)
+### portfolio Agent  (🧩 In-Progress)
 - Completed:  
-  - Reads mean / covariance data from `investment/config/mu_cov.xlsx`.  
+  - Reads mean / covariance data from `portfolio/config/mu_cov.xlsx`.  
   - Runs a **mean-variance optimizer** producing 12 asset classes:  
     - Equity sleeves (large/small growth/value, developed/emerging)  
     - Bond sleeves (short/mid/long-term treasuries, corporates, TIPS, cash)  
@@ -114,18 +114,18 @@ python app.py
          ▼
  ┌───────────────────────────────┐
  │ “set equity” → Review prompt  │
- │ “use guidance” → Advice Agent │
- │ “proceed” → Investment Agent  │
+ │ “use guidance” → risk Agent │
+ │ “proceed” → portfolio Agent  │
  └───────────────────────────────┘
                ▼
-        Advice Agent
+        risk Agent
          │ 7 questions
          │ computes 15 % / 85 %
          ▼
    Returns to Robo-Advisor
          │ review or proceed
          ▼
-     Investment Agent
+     portfolio Agent
          │ asks λ & cash reserve
          │ runs mean-variance optimization
          │ outputs asset-class portfolio
@@ -144,9 +144,9 @@ python app.py
 > **User:** review  
 > **AI:** Current mix … Type `use guidance` for questionnaire.  
 > **User:** guidance  
-> *(Advice Agent runs full 7-question flow → recommends 15 % equity / 85 % bonds)*  
+> *(risk Agent runs full 7-question flow → recommends 15 % equity / 85 % bonds)*  
 > **User:** proceed  
-> *(Investment Agent engages)*  
+> *(portfolio Agent engages)*  
 > **AI:** Defaults λ = 1.0, cash = 0.05 — say “set lambda to 1 and cash to 0.03 run”  
 > **User:** set lambda as 1 and cash as 0.03 run  
 > *(Optimizer builds portfolio — sample output below)*  
@@ -169,8 +169,8 @@ python app.py
 
 | Phase | Focus | Description |
 |--------|--------|-------------|
-| ✅ **Step 1 – Advice Onboarding** | Completed | Risk-profiling and allocation summary finished. |
-| 🧩 **Step 2 – Investment Agent** | *In Progress* | Asset-class optimizer done; ETF/fund analysis next. |
+| ✅ **Step 1 – risk Onboarding** | Completed | Risk-profiling and allocation summary finished. |
+| 🧩 **Step 2 – portfolio Agent** | *In Progress* | Asset-class optimizer done; ETF/fund analysis next. |
 | ⏳ **Step 3 – Trading Agent** | Planned | Translate portfolios to trades and send to custodians. |
 | 🚀 **Step 4 – Unified Robo-Advisor** | Vision | Fully autonomous, multi-agent wealth-advisory pipeline. |
 
@@ -179,11 +179,11 @@ python app.py
 ## 🧰 Developer Notes
 
 - State now includes:  
-  `intent_to_advise`, `intent_to_investment`, `advice`, `investment`, and standard `messages`.  
+  `intent_to_risk`, `intent_to_portfolio`, `risk`, `portfolio`, and standard `messages`.  
 - Each node operates **only on user turns**, avoiding LangGraph recursion.  
-- The Investment Agent uses modular tools (`mean_variance_optimizer`, future `fund_selector`).  
+- The portfolio Agent uses modular tools (`mean_variance_optimizer`, future `fund_selector`).  
 - Extend easily:
-  - Add new endpoints under `/investment` or `/trading`.  
+  - Add new endpoints under `/portfolio` or `/trading`.  
   - Update router conditions in `app.py`.
 
 ---

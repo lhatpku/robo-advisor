@@ -2,9 +2,9 @@ from __future__ import annotations
 from typing import Dict, Any
 from langchain.tools import tool
 
-@tool("set_investment_param")
-def set_investment_param(param: str, value: float, current: Dict[str, float] | None = None) -> Dict[str, Any]:
-    """Validate/update an investment parameter.
+@tool("set_portfolio_param")
+def set_portfolio_param(param: str, value: float, current: Dict[str, float] | None = None) -> Dict[str, Any]:
+    """Validate/update an portfolio parameter.
 
     Args:
       param: one of ["lambda", "cash_reserve"]

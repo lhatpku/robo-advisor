@@ -47,8 +47,8 @@ def _solve_bucket(mu: np.ndarray, Sigma: np.ndarray, lam: float) -> np.ndarray:
 
 def optimize_portfolio_from_file(
     mu_cov_xlsx_path: str,
-    advice_equity: float,
-    advice_bonds: float,
+    risk_equity: float,
+    risk_bonds: float,
     lam: float,
     cash_reserve: float
 ) -> Dict[str, float]:
@@ -77,16 +77,16 @@ def optimize_portfolio_from_file(
     Sig_fi = Sigma[np.ix_([idx[n] for n in BND], [idx[n] for n in BND])]
     w_fi   = _solve_bucket(mu_fi, Sig_fi, lam) if len(BND) else np.array([])
 
-    bonds_ex_cash_target = max(0.0, advice_bonds - (cash_reserve if has_cash else 0.0))
-    if advice_equity + advice_bonds > 1.0001:
-        scale = 1.0 / (advice_equity + advice_bonds)
-        advice_equity *= scale
-        advice_bonds  *= scale
-        bonds_ex_cash_target = max(0.0, advice_bonds - (cash_reserve if has_cash else 0.0))
+    bonds_ex_cash_target = max(0.0, risk_bonds - (cash_reserve if has_cash else 0.0))
+    if risk_equity + risk_bonds > 1.0001:
+        scale = 1.0 / (risk_equity + risk_bonds)
+        risk_equity *= scale
+        risk_bonds  *= scale
+        bonds_ex_cash_target = max(0.0, risk_bonds - (cash_reserve if has_cash else 0.0))
 
     out: Dict[str, float] = {}
     for n, w in zip(EQU, w_eq):
-        out[n] = float(w * advice_equity)
+        out[n] = float(w * risk_equity)
     for n, w in zip(BND, w_fi):
         out[n] = float(w * bonds_ex_cash_target)
     if has_cash:
@@ -103,16 +103,16 @@ def optimize_portfolio_from_file(
 @tool("mean_variance_optimizer")
 def mean_variance_optimizer(
     mu_cov_xlsx_path: str,
-    advice_equity: float,
-    advice_bonds: float,
+    risk_equity: float,
+    risk_bonds: float,
     lam: float,
     cash_reserve: float
 ) -> Dict[str, float]:
     """Optimize asset-class weights via mean-variance, reading 'mu' and 'cov' sheets from an Excel file.
     Args:
       mu_cov_xlsx_path: Path to Excel with sheets 'mu' (asset, mean) and 'cov' (covariance matrix with headers).
-      advice_equity: Equity bucket target (e.g., 0.7).
-      advice_bonds: Bond bucket target (e.g., 0.3).
+      risk_equity: Equity bucket target (e.g., 0.7).
+      risk_bonds: Bond bucket target (e.g., 0.3).
       lam: Risk-aversion parameter; larger means more conservative (try 5–20).
       cash_reserve: Cash proportion between 0.03 and 0.06.
     Returns:
@@ -120,8 +120,8 @@ def mean_variance_optimizer(
     """
     return optimize_portfolio_from_file(
         mu_cov_xlsx_path=mu_cov_xlsx_path,
-        advice_equity=float(advice_equity),
-        advice_bonds=float(advice_bonds),
+        risk_equity=float(risk_equity),
+        risk_bonds=float(risk_bonds),
         lam=float(lam),
         cash_reserve=float(cash_reserve),
     )

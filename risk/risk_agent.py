@@ -1,4 +1,4 @@
-# advice/advice_agent.py
+# risk/risk_agent.py
 from __future__ import annotations
 from typing import TypedDict, List, Dict, Any, Optional, Tuple
 import re
@@ -8,19 +8,19 @@ from langchain_openai import ChatOpenAI
 from langchain_core.messages import SystemMessage, HumanMessage, AIMessage, ToolMessage
 
 from .questions import MCQuestion, MCAnswer, QUESTIONS
-from .general_investing import general_investing_advice_tool
+from .general_investing import general_investing_risk_tool
 
 from state import AgentState
 
 AGENT_SYSTEM_PROMPT = """\
-You are the Advice Agent.
+You are the risk Agent.
 
 Your responsibilities:
 1) Ask exactly one question at a time from the provided 7-question set (text and options are given to you verbatim).
 2) Present options as numbered choices (1..N) exactly as provided.
 3) Accept natural replies like “2”, “the second one”, or a phrase matching an option.
 4) If the user asks “why”, briefly show the provided guidance for that question, then re-show the same question.
-5) After ALL 7 answers are collected, you MUST call the `general_investing_advice` tool with the structured answers
+5) After ALL 7 answers are collected, you MUST call the `general_investing_risk` tool with the structured answers
    (qid -> {selected_index, selected_label, raw_user_text}). 
    Then summarize the returned allocation clearly. 
 
@@ -98,17 +98,17 @@ def _retry_with_llm(llm: ChatOpenAI, q: MCQuestion) -> str:
 def _finalize_with_tool_and_llm(state: AgentState, llm: ChatOpenAI) -> AgentState:
     """
     Finalize deterministically:
-      1) Call general_investing_advice_tool with the collected answers.
+      1) Call general_investing_risk_tool with the collected answers.
       2) Render a plain, structured summary using MCQuestion.label and the stored selected_label.
       3) Present equity/bond as percentages with one decimal place.
     """
     # 1) Always call the tool directly with full answers payload
-    result = general_investing_advice_tool.invoke({"answers": state["answers"]})
-    state["advice"] = result or {}
+    result = general_investing_risk_tool.invoke({"answers": state["answers"]})
+    state["risk"] = result or {}
 
     # 2) Build a deterministic summary (no LLM)
-    eq = float(state["advice"].get("equity", 0.0))
-    bd = float(state["advice"].get("bond", 0.0))
+    eq = float(state["risk"].get("equity", 0.0))
+    bd = float(state["risk"].get("bond", 0.0))
     eq_pct = round(eq * 100.0, 1)
     bd_pct = round(bd * 100.0, 1)
 
@@ -140,11 +140,11 @@ def _finalize_with_tool_and_llm(state: AgentState, llm: ChatOpenAI) -> AgentStat
     state["messages"].append({"role": "ai", "content": msg})
 
     state["awaiting_input"] = False
-    state["intent_to_advise"] = False     
+    state["intent_to_risk"] = False     
     state["done"] = True                  
     return state
       
-def advice_agent_step(state: AgentState, llm: ChatOpenAI) -> AgentState:
+def risk_agent_step(state: AgentState, llm: ChatOpenAI) -> AgentState:
     # finished already?
     if state.get("done"):
         return state
