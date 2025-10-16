@@ -99,6 +99,8 @@ packaging==25.0
     #   langsmith
 pandas==2.3.3
     # via -r requirements.in
+yfinance==0.2.18
+    # via -r requirements.in
 pydantic==2.12.2
     # via
     #   -r requirements.in
@@ -164,3 +166,5 @@ xxhash==3.6.0
     # via langgraph
 zstandard==0.25.0
     # via langsmith
+scipy==1.11.4
+    # via requirements.in
