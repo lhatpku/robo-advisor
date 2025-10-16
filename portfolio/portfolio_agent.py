@@ -2,13 +2,10 @@
 from __future__ import annotations
 from typing import Dict, Any
 import os
+from portfolio.config import get_expected_returns, get_covariance_matrix, DEFAULT_LAMBDA, DEFAULT_CASH_RESERVE, get_cash_reserve_constraints, validate_cash_reserve
 from portfolio.portfolio_manager import PortfolioManager
 from state import AgentState
 from langchain_openai import ChatOpenAI
-
-# Resolve the config path relative to THIS file
-_THIS_DIR = os.path.dirname(__file__)
-DEFAULT_MU_COV_PATH = os.path.join(_THIS_DIR, "config", "asset_stats.xlsx")
 
 
 class PortfolioAgent:
@@ -83,9 +80,10 @@ class PortfolioAgent:
         # ensure defaults
         inv = state.setdefault("portfolio", {}) or {}
         state["portfolio"] = inv
-        inv.setdefault("lambda", 1.0)
-        inv.setdefault("cash_reserve", 0.05)
-        inv.setdefault("mu_cov_xlsx_path", DEFAULT_MU_COV_PATH)
+        inv.setdefault("lambda", DEFAULT_LAMBDA)
+        inv.setdefault("cash_reserve", DEFAULT_CASH_RESERVE)
+        # Use config instead of Excel file
+        inv.setdefault("mu_cov_xlsx_path", None)  # No longer needed
 
         # One-time intro on entry
         if not inv.get("__inv_intro_done__"):
@@ -140,12 +138,12 @@ class PortfolioAgent:
 
             if name == "mean_variance_optimizer":
                 # Clamp cash for optimizer constraints
-                cr = float(inv.get("cash_reserve", 0.05))
-                clamped = min(0.05, max(0.00, cr))
-                lam = float(inv.get("lambda", 1.0))
+                cr = float(inv.get("cash_reserve", DEFAULT_CASH_RESERVE))
+                min_cash, max_cash = get_cash_reserve_constraints()
+                clamped = min(max_cash, max(min_cash, cr))
+                lam = float(inv.get("lambda", DEFAULT_LAMBDA))
 
                 call_args = {
-                    "mu_cov_xlsx_path": inv.get("mu_cov_xlsx_path", DEFAULT_MU_COV_PATH),
                     "risk_equity": float(risk.get("equity", 0.0)),
                     "risk_bonds": float(risk.get("bond", 0.0)),
                     "lam": lam,

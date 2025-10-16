@@ -5,6 +5,13 @@ from langchain_openai import ChatOpenAI
 from state import AgentState
 from investment.fund_analyzer import FundAnalyzer
 from investment.fund_analysis_tool import FUND_ANALYSIS_TOOLS
+from investment.config import (
+    get_fund_options, 
+    get_selection_criteria, 
+    is_cash_position, 
+    get_cash_config,
+    ASSET_CLASS_FUNDS
+)
 
 
 class InvestmentAgent:
@@ -12,22 +19,6 @@ class InvestmentAgent:
     Investment agent that handles the conversion of asset-class portfolios
     into tradeable portfolios with specific funds/ETFs.
     """
-    
-    # Asset class to potential ETF mappings (placeholder - will be replaced with API calls)
-    ASSET_CLASS_FUNDS = {
-        "large_cap_growth": ["VUG", "MGK", "VUG", "QQQ"],
-        "large_cap_value": ["VTV", "VYM", "VTV", "SPYV"],
-        "small_cap_growth": ["VBK", "IJR", "VBK", "IJS"],
-        "small_cap_value": ["VBR", "IJS", "VBR", "SLYV"],
-        "developed_market_equity": ["VEA", "EFA", "VEA", "IEFA"],
-        "emerging_market_equity": ["VWO", "EEM", "VWO", "IEMG"],
-        "short_term_treasury": ["SHY", "VGSH", "SHY", "SCHR"],
-        "mid_term_treasury": ["IEF", "VGIT", "IEF", "SCHM"],
-        "long_term_treasury": ["TLT", "VGLT", "TLT", "SCHQ"],
-        "corporate_bond": ["LQD", "VCIT", "LQD", "SCHI"],
-        "tips": ["TIP", "VTEB", "TIP", "SCHP"],
-        "cash": ["BIL", "SHV", "BIL", "SCHO"]
-    }
     
     def __init__(self, llm: ChatOpenAI):
         """
@@ -219,18 +210,13 @@ I can choose funds using different criteria. Please select one:
         self._display_investment_portfolio(state, investment)
         
         # Show criteria used
-        criteria_names = {
-            "balanced": "Balanced (risk-adjusted returns)",
-            "low_cost": "Low Cost (lowest fees)",
-            "high_performance": "High Performance (highest returns)",
-            "low_risk": "Low Risk (lowest volatility)",
-            "cash_reserve": "Cash Reserve (sweep account)"
-        }
+        criteria_config = get_selection_criteria(criteria)
+        criteria_name = criteria_config.get("name", criteria) if criteria_config else criteria
         
         state["messages"].append({
             "role": "ai",
             "content": (
-                f"I've created your tradeable portfolio using the **{criteria_names.get(criteria, criteria)}** selection criteria. "
+                f"I've created your tradeable portfolio using the **{criteria_name}** selection criteria. "
                 "Would you like to review and edit any fund selections? "
                 "You can say the asset class name (e.g., 'large cap growth') to see alternative options, or 'analyze [ticker]' for detailed fund analysis."
             )
@@ -333,7 +319,7 @@ I can choose funds using different criteria. Please select one:
             return state
         
         # Get available funds for this asset class
-        available_funds = self.ASSET_CLASS_FUNDS.get(asset_class, [])
+        available_funds = get_fund_options(asset_class)
         current_ticker = investment[asset_class]["ticker"]
         
         # Set up edit mode
@@ -446,15 +432,10 @@ I can choose funds using different criteria. Please select one:
                 criteria_used = data["criteria_used"]
                 break
         
-        criteria_names = {
-            "balanced": "Balanced (risk-adjusted returns)",
-            "low_cost": "Low Cost (lowest fees)",
-            "high_performance": "High Performance (highest returns)",
-            "low_risk": "Low Risk (lowest volatility)",
-            "cash_reserve": "Cash Reserve (sweep account)"
-        }
+        criteria_config = get_selection_criteria(criteria_used)
+        criteria_name = criteria_config.get("name", criteria_used) if criteria_config else criteria_used
         
-        reasoning_text = f"\n**Selection Criteria: {criteria_names.get(criteria_used, 'Unknown')}**\n"
+        reasoning_text = f"\n**Selection Criteria: {criteria_name}**\n"
         for asset_class, data in investment.items():
             if data.get("selection_reason"):
                 display_name = asset_class.replace("_", " ").title()
@@ -469,7 +450,7 @@ I can choose funds using different criteria. Please select one:
         """Select the best fund for a given asset class using fund analysis."""
         try:
             # Get fund options for this asset class
-            fund_options = self.ASSET_CLASS_FUNDS.get(asset_class, ["UNKNOWN"])
+            fund_options = get_fund_options(asset_class)
             
             if not fund_options or fund_options[0] == "UNKNOWN":
                 return {
@@ -543,7 +524,7 @@ I can choose funds using different criteria. Please select one:
             
         except Exception as e:
             # Fallback to first fund if analysis fails
-            fund_options = self.ASSET_CLASS_FUNDS.get(asset_class, ["UNKNOWN"])
+            fund_options = get_fund_options(asset_class)
             return {
                 "ticker": fund_options[0] if fund_options else "UNKNOWN",
                 "reason": f"Analysis failed, using default: {str(e)}",

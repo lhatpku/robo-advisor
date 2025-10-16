@@ -46,30 +46,17 @@ def get_fund_recommendation(asset_class: str, criteria: str = "balanced") -> Dic
     Returns:
         Dictionary containing fund recommendation and analysis
     """
-    # Asset class to potential funds mapping
-    asset_class_funds = {
-        "large_cap_growth": ["VUG", "MGK", "QQQ", "VUG"],
-        "large_cap_value": ["VTV", "VYM", "SPYV", "VTV"],
-        "small_cap_growth": ["VBK", "IJR", "IJS", "VBK"],
-        "small_cap_value": ["VBR", "IJS", "SLYV", "VBR"],
-        "developed_market_equity": ["VEA", "EFA", "IEFA", "VEA"],
-        "emerging_market_equity": ["VWO", "EEM", "IEMG", "VWO"],
-        "short_term_treasury": ["SHY", "VGSH", "SCHR", "SHY"],
-        "mid_term_treasury": ["IEF", "VGIT", "SCHM", "IEF"],
-        "long_term_treasury": ["TLT", "VGLT", "SCHQ", "TLT"],
-        "corporate_bond": ["LQD", "VCIT", "SCHI", "LQD"],
-        "tips": ["TIP", "VTEB", "SCHP", "TIP"],
-        "cash": ["BIL", "SHV", "SCHO", "BIL"]
-    }
+    # Import the centralized asset class funds data
+    from investment.config import get_fund_options
     
-    if asset_class not in asset_class_funds:
+    # Get fund options for the asset class from centralized source
+    fund_options = get_fund_options(asset_class)
+    
+    if not fund_options:
         return {
             "error": f"Unknown asset class: {asset_class}",
             "recommendation": None
         }
-    
-    # Get fund options for the asset class
-    fund_options = asset_class_funds[asset_class]
     
     # Analyze all options
     analyzer = FundAnalyzer()

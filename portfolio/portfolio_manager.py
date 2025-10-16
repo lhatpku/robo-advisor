@@ -6,6 +6,7 @@ import os
 import json
 from langchain.tools import tool
 from langchain_openai import ChatOpenAI
+from portfolio.config import get_expected_returns, get_covariance_matrix, ASSET_CLASSES, get_cash_reserve_constraints, validate_cash_reserve
 
 
 class PortfolioManager:
@@ -58,6 +59,23 @@ class PortfolioManager:
         Sigma = cov_df.values
         return mu_map, Sigma, names
     
+    def _read_mu_cov_from_config(self) -> Tuple[Dict[str, float], np.ndarray, List[str]]:
+        """
+        Read mean returns and covariance matrix from config file.
+        
+        Returns:
+            Tuple of (mu_map, Sigma, names)
+        """
+        # Get expected returns and covariance matrix from config
+        mu_array = get_expected_returns()
+        Sigma = get_covariance_matrix()
+        names = ASSET_CLASSES
+        
+        # Convert to dictionary format
+        mu_map = dict(zip(names, mu_array))
+        
+        return mu_map, Sigma, names
+    
     def _solve_bucket(self, mu: np.ndarray, Sigma: np.ndarray, lam: float) -> np.ndarray:
         """
         Solve mean-variance optimization for a single asset bucket.
@@ -89,7 +107,6 @@ class PortfolioManager:
     
     def optimize_portfolio_from_file(
         self,
-        mu_cov_xlsx_path: str,
         risk_equity: float,
         risk_bonds: float,
         lam: float,
@@ -99,21 +116,22 @@ class PortfolioManager:
         Optimize portfolio weights using mean-variance optimization.
         
         Args:
-            mu_cov_xlsx_path: Path to Excel with sheets 'mu' and 'cov'
             risk_equity: Equity bucket target (e.g., 0.7)
             risk_bonds: Bond bucket target (e.g., 0.3)
             lam: Risk-aversion parameter (higher = more conservative)
-            cash_reserve: Cash proportion between 0.0 and 0.05
+            cash_reserve: Cash proportion between 0.02 and 0.05
             
         Returns:
             Dict mapping asset class to portfolio weight
         """
         if lam <= 0:
             raise ValueError("lambda must be positive (try 1; higher = more conservative).")
-        if not (0.0 <= cash_reserve <= 0.05):
-            raise ValueError("cash_reserve must be between 0.0 and 0.05 (0%–5%).")
+        min_cash, max_cash = get_cash_reserve_constraints()
+        if not validate_cash_reserve(cash_reserve):
+            raise ValueError(f"cash_reserve must be between {min_cash:.2f} and {max_cash:.2f} ({min_cash*100:.0f}%–{max_cash*100:.0f}%).")
 
-        mu_map, Sigma, names = self._read_mu_cov_from_excel(mu_cov_xlsx_path)
+        # Use config instead of Excel file
+        mu_map, Sigma, names = self._read_mu_cov_from_config()
         idx = {n: i for i, n in enumerate(names)}
 
         # Determine available sets based on file (fallback to expected lists)
@@ -176,8 +194,9 @@ class PortfolioManager:
             return {"ok": True, "param": param, "new_value": float(value), "note": "Updated lambda."}
 
         if param == "cash_reserve":
-            if not (0.0 <= value <= 0.05):
-                return {"ok": False, "param": param, "new_value": None, "note": "Cash reserve should be within 0.0–0.05."}
+            min_cash, max_cash = get_cash_reserve_constraints()
+            if not validate_cash_reserve(value):
+                return {"ok": False, "param": param, "new_value": None, "note": f"Cash reserve should be within {min_cash:.2f}–{max_cash:.2f}."}
             return {"ok": True, "param": param, "new_value": float(value), "note": "Updated cash reserve."}
     
     def _create_tool_registry(self) -> Dict[str, Callable[[Dict[str, Any]], Any]]:
@@ -267,8 +286,7 @@ class PortfolioManager:
         exemplar = json.dumps(examples, indent=2)
         user = (
             f"Current parameters: lambda={inv.get('lambda')}, cash_reserve={inv.get('cash_reserve')}.\n"
-            f"risk split: equity={risk.get('equity', 0.0)}, bonds={risk.get('bond', 0.0)}.\n"
-            f"Mu/Cov file: {inv.get('mu_cov_xlsx_path','')}\n\n"
+            f"risk split: equity={risk.get('equity', 0.0)}, bonds={risk.get('bond', 0.0)}.\n\n"
             f"Examples (for guidance, not for output):\n{exemplar}\n\n"
             f"Latest user message:\n{user_text}\n\n"
             "Now output ONLY the JSON array of tool calls."
@@ -303,18 +321,14 @@ class PortfolioManager:
 # LangChain tool wrappers for backward compatibility
 @tool("mean_variance_optimizer")
 def mean_variance_optimizer(
-    mu_cov_xlsx_path: str,
     risk_equity: float,
     risk_bonds: float,
     lam: float,
     cash_reserve: float
 ) -> Dict[str, float]:
-    """Optimize asset-class weights via mean-variance, reading 'mu' and 'cov' sheets from an Excel file."""
+    """Optimize asset-class weights via mean-variance using config data."""
     manager = PortfolioManager()
-    return manager.optimize_portfolio_from_file(
-        mu_cov_xlsx_path=mu_cov_xlsx_path,
-        risk_equity=float(risk_equity),
-        risk_bonds=float(risk_bonds),
+    return manager.mean_variance_optimizer(
         lam=float(lam),
         cash_reserve=float(cash_reserve),
     )
