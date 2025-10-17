@@ -12,5 +12,6 @@ class AgentState(TypedDict, total=False):
     intent_to_portfolio: bool
     intent_to_investment: bool
     intent_to_trading: bool
-    portfolio: Optional[Dict[str, Any]]   # {"lambda": float, "cash_reserve": float, "portfolio": dict, "investment": dict}
+    portfolio: Optional[Dict[str, Any]]   
+    investment: Optional[Dict[str, Any]] 
     trading_requests: Optional[Dict[str, Any]]  # Trading requests and analysis

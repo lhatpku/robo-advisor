@@ -80,7 +80,8 @@ if __name__ == "__main__":
         "intent_to_investment": False,
         "intent_to_trading": False,
         "entry_greeted": False,
-        "portfolio": None
+        "portfolio": None,
+        "investment": None
     }
 
     # --- INITIAL TICK to produce greeting ---

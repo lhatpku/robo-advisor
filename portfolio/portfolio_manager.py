@@ -105,7 +105,7 @@ class PortfolioManager:
             w /= s
         return w
     
-    def optimize_portfolio_from_file(
+    def mean_variance_optimizer(
         self,
         risk_equity: float,
         risk_bonds: float,
@@ -202,7 +202,7 @@ class PortfolioManager:
     def _create_tool_registry(self) -> Dict[str, Callable[[Dict[str, Any]], Any]]:
         """Create registry of available tools."""
         return {
-            "mean_variance_optimizer": lambda args: self.optimize_portfolio_from_file(**args),
+            "mean_variance_optimizer": lambda args: self.mean_variance_optimizer(**args),
             "set_portfolio_param": lambda args: self.set_portfolio_param(**args),
         }
     
@@ -240,6 +240,10 @@ class PortfolioManager:
         user_text = ""
         if state.get("messages") and state["messages"][-1].get("role") == "user":
             user_text = state["messages"][-1].get("content", "")
+
+        # Get current parameters from state (passed from portfolio agent)
+        current_lambda = state.get("current_lambda", 1.0)
+        current_cash_reserve = state.get("current_cash_reserve", 0.05)
 
         system = (
             "Plan tool calls for portfolio optimization based on user input.\n\n"
@@ -285,7 +289,7 @@ class PortfolioManager:
 
         exemplar = json.dumps(examples, indent=2)
         user = (
-            f"Current parameters: lambda={inv.get('lambda')}, cash_reserve={inv.get('cash_reserve')}.\n"
+            f"Current parameters: lambda={current_lambda}, cash_reserve={current_cash_reserve}.\n"
             f"risk split: equity={risk.get('equity', 0.0)}, bonds={risk.get('bond', 0.0)}.\n\n"
             f"Examples (for guidance, not for output):\n{exemplar}\n\n"
             f"Latest user message:\n{user_text}\n\n"
@@ -329,6 +333,8 @@ def mean_variance_optimizer(
     """Optimize asset-class weights via mean-variance using config data."""
     manager = PortfolioManager()
     return manager.mean_variance_optimizer(
+        risk_equity=float(risk_equity),
+        risk_bonds=float(risk_bonds),
         lam=float(lam),
         cash_reserve=float(cash_reserve),
     )

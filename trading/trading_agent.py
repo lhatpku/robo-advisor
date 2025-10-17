@@ -39,7 +39,7 @@ class TradingAgent:
         """Main step function for trading agent"""
         # Check if we have an investment portfolio to work with
         portfolio = state.get("portfolio", {})
-        investment = portfolio.get("investment")
+        investment = state.get("investment", {})
         
         if not investment:
             state["messages"].append({
@@ -162,7 +162,7 @@ class TradingAgent:
                 "role": "ai",
                 "content": "Using your actual portfolio data. Proceeding with trading request generation..."
             })
-            return self._generate_trading_requests(state, state.get("portfolio", {}).get("investment"))
+            return self._generate_trading_requests(state, state.get("investment", {}))
         
         try:
             scenario_num = int(last_user)

@@ -29,6 +29,13 @@ class InvestmentAgent:
         """
         self.llm = llm
         self.fund_analyzer = FundAnalyzer()
+        
+        # Local flags to control flow (similar to original GitHub version but local)
+        self._investment_intro_done = False
+        self._investment_criteria_selection = False
+        self._investment_edit_mode = False
+        self._investment_edit_asset_class = None
+        self._investment_edit_options = None
     
     def step(self, state: Dict[str, Any]) -> Dict[str, Any]:
         """
@@ -42,7 +49,7 @@ class InvestmentAgent:
         """
         # Check if portfolio exists
         portfolio = state.get("portfolio", {})
-        if not portfolio or not portfolio.get("portfolio"):
+        if not portfolio:
             state["messages"].append({
                 "role": "ai", 
                 "content": "I need a portfolio allocation from the portfolio agent before I can help you select specific funds."
@@ -52,21 +59,65 @@ class InvestmentAgent:
         # Only act on USER turns
         if not state.get("messages") or state["messages"][-1].get("role") != "user":
             return state
+
+        last_user = state["messages"][-1].get("content", "").lower()
         
+        # Get previous AI message
+        prev_ai = ""
+        if state.get("messages") and len(state["messages"]) > 1:
+            for msg in reversed(state["messages"][:-1]):
+                if msg.get("role") == "ai":
+                    prev_ai = msg.get("content", "")
+                    break
+
+        # Handle review command first - show current investment portfolio
+        if any(word in last_user for word in ["review", "show", "display", "see", "current"]):
+            investment = state.get("investment")
+            
+            if investment and isinstance(investment, dict) and investment:
+                # Show current investment portfolio
+                self._display_investment_portfolio(state, investment)
+            else:
+                # Show intro message if no investment exists
+                state["messages"].append({
+                    "role":"ai",
+                    "content": (
+                        "Great! Now I'll help you convert your asset-class allocation into a tradeable portfolio "
+                        "with specific funds and ETFs.\n\n"
+                        "I'll select appropriate funds for each asset class based on your allocation weights. "
+                        "Would you like me to proceed with fund selection?"
+                    )
+                })
+            return state
+
+        # Handle edit commands - allow editing specific asset classes
+        if any(word in last_user for word in ["edit", "change", "modify", "adjust", "swap"]):
+            if state.get("investment"):
+                state["messages"].append({
+                    "role":"ai",
+                    "content": "Which asset class would you like to edit? Please say the asset class name (e.g., 'large cap growth', 'mid term treasury')."
+                })
+            else:
+                state["messages"].append({
+                    "role":"ai",
+                    "content": "I need to create your investment portfolio first. Would you like me to proceed with fund selection?"
+                })
+            return state
+
         # Check if we're in criteria selection mode
-        if portfolio.get("__investment_criteria_selection__"):
+        if self._investment_criteria_selection:
             return self._handle_criteria_selection(state)
         
         # Check if we're in edit mode (user wants to swap a ticker)
-        if portfolio.get("__investment_edit_mode__"):
+        if self._investment_edit_mode:
             return self._handle_edit_mode(state)
         
         # Check if investment already exists
-        if portfolio.get("investment"):
+        if state.get("investment"):
             return self._handle_existing_investment(state)
         
         # One-time intro on entry
-        if not portfolio.get("__investment_intro_done__"):
+        if not self._investment_intro_done:
             state["messages"].append({
                 "role": "ai",
                 "content": (
@@ -76,12 +127,10 @@ class InvestmentAgent:
                     "Would you like me to proceed with fund selection?"
                 )
             })
-            portfolio["__investment_intro_done__"] = True
+            self._investment_intro_done = True
             return state
         
         # Handle user input for initial fund selection
-        last_user = state["messages"][-1].get("content", "").lower().strip()
-        
         if any(word in last_user for word in ["yes", "proceed", "continue", "go ahead", "start"]):
             return self._create_initial_investment(state)
         
@@ -103,7 +152,7 @@ class InvestmentAgent:
     def _create_initial_investment(self, state: Dict[str, Any]) -> Dict[str, Any]:
         """Create initial investment portfolio with fund selections."""
         portfolio = state.get("portfolio", {})
-        asset_weights = portfolio.get("portfolio", {})
+        asset_weights = portfolio
         
         # Ask user to choose selection criteria
         state["messages"].append({
@@ -112,7 +161,7 @@ class InvestmentAgent:
         })
         
         # Set up criteria selection mode
-        portfolio["__investment_criteria_selection__"] = True
+        self._investment_criteria_selection = True
         
         return state
     
@@ -174,11 +223,10 @@ I can choose funds using different criteria. Please select one:
             })
             return state
         
-        # Clear criteria selection mode
-        portfolio.pop("__investment_criteria_selection__", None)
+        # Criteria selection completed
         
         # Create investment portfolio with selected criteria
-        asset_weights = portfolio.get("portfolio", {})
+        asset_weights = portfolio
         investment = {}
         
         for asset_class, weight in asset_weights.items():
@@ -203,8 +251,8 @@ I can choose funds using different criteria. Please select one:
                         "criteria_used": criteria
                     }
         
-        # Store investment in portfolio
-        portfolio["investment"] = investment
+        # Store investment in state
+        state["investment"] = investment
         
         # Display the investment portfolio
         self._display_investment_portfolio(state, investment)
@@ -222,8 +270,8 @@ I can choose funds using different criteria. Please select one:
             )
         })
         
-        # Clear the intent flag so user can continue interacting
-        state["intent_to_investment"] = False
+        # Clear criteria selection mode
+        self._investment_criteria_selection = False
         
         return state
     
@@ -232,8 +280,8 @@ I can choose funds using different criteria. Please select one:
         last_user = state["messages"][-1].get("content", "").lower().strip()
         
         if any(word in last_user for word in ["review", "show", "display", "see"]):
-            portfolio = state.get("portfolio", {})
-            investment = portfolio.get("investment", {})
+            investment = state.get("investment", {})
+
             self._display_investment_portfolio(state, investment)
             return state
         
@@ -249,14 +297,27 @@ I can choose funds using different criteria. Please select one:
             return self._handle_fund_analysis_request(state, last_user)
         
         # Check if user wants to proceed to trading
-        if any(word in last_user for word in ["done", "ok", "okay", "good", "fine", "next", "proceed", "continue", "ready", "complete", "finished"]):
-            state["messages"].append({
-                "role": "ai",
-                "content": "Perfect! Your investment portfolio is ready. You can now proceed to generate trading requests if you'd like to see how to execute this portfolio."
-            })
-            state["intent_to_investment"] = False
-            state["done"] = True
-            return state
+        if state.get("portfolio") and state.get("investment") and state.get("messages") and state["messages"][-1].get("role") == "user":
+            last_user = state["messages"][-1].get("content", "").lower()
+            if last_user.strip() in ["done", "ok", "okay", "good", "fine", "next", "proceed", "continue", "ready", "complete", "finished"]:
+                state["intent_to_investment"] = False
+                state["intent_to_trading"] = True  # Route to trading agent
+                state["messages"].append({
+                    "role": "ai",
+                    "content": "Perfect! Your investment portfolio is ready. Proceeding to generate trading requests..."
+                })
+                return state
+
+
+        # if any(word in last_user for word in ["done", "ok", "okay", "good", "fine", "next", "proceed", "continue", "ready", "complete", "finished"]):
+        #     state["messages"].append({
+        #         "role": "ai",
+        #         "content": "Perfect! Your investment portfolio is ready. You can now proceed to generate trading requests if you'd like to see how to execute this portfolio."
+        #     })
+        #     state["intent_to_investment"] = False
+        #     state["intent_to_trading"] = True  # Route to trading agent
+        #     state["done"] = True
+        #     return state
         
         # Check if user mentioned a specific asset class
         asset_class = self._extract_asset_class(last_user)
@@ -265,51 +326,49 @@ I can choose funds using different criteria. Please select one:
         
         state["messages"].append({
             "role": "ai",
-            "content": "You can say 'review' to see your current portfolio, mention an asset class name to edit it (e.g., 'large cap growth'), 'analyze [ticker]' to get detailed fund analysis, or 'done' to proceed."
+            "content": "You can say 'review' to see your current portfolio, mention an asset class name to edit it (e.g., 'large cap growth'), 'analyze [ticker]' to get detailed fund analysis, or 'proceed' to move to trading."
         })
         return state
     
     def _handle_edit_mode(self, state: Dict[str, Any]) -> Dict[str, Any]:
         """Handle user input when in edit mode for a specific asset class."""
         last_user = state["messages"][-1].get("content", "").strip()
-        portfolio = state.get("portfolio", {})
-        edit_asset_class = portfolio.get("__investment_edit_asset_class__")
         
         # Check if user selected a fund option
         if last_user.isdigit():
             option_num = int(last_user)
-            available_funds = portfolio.get("__investment_edit_options__", [])
+            available_funds = self._investment_edit_options or []
             
             if 1 <= option_num <= len(available_funds):
                 selected_fund = available_funds[option_num - 1]
                 
                 # Update the investment
-                investment = portfolio.get("investment", {})
-                if edit_asset_class in investment:
-                    investment[edit_asset_class]["ticker"] = selected_fund
+                investment = state.get("investment", {})
+                if self._investment_edit_asset_class in investment:
+                    investment[self._investment_edit_asset_class]["ticker"] = selected_fund
                 
                 # Clear edit mode
-                portfolio.pop("__investment_edit_mode__", None)
-                portfolio.pop("__investment_edit_asset_class__", None)
-                portfolio.pop("__investment_edit_options__", None)
+                self._investment_edit_mode = False
+                self._investment_edit_asset_class = None
+                self._investment_edit_options = None
                 
                 state["messages"].append({
                     "role": "ai",
-                    "content": f"Updated {edit_asset_class} to use {selected_fund}. Would you like to edit another asset class or review your portfolio?"
+                    "content": f"Updated {self._investment_edit_asset_class} to use {selected_fund}. Would you like to edit another asset class or review your portfolio?"
                 })
                 return state
         
         # If not a valid selection, ask again
         state["messages"].append({
             "role": "ai",
-            "content": f"Please select a number from 1 to {len(portfolio.get('__investment_edit_options__', []))} for {edit_asset_class}."
+            "content": f"Please select a number from 1 to {len(self._investment_edit_options or [])} for {self._investment_edit_asset_class}."
         })
         return state
     
     def _show_asset_class_options(self, state: Dict[str, Any], asset_class: str) -> Dict[str, Any]:
         """Show fund options for a specific asset class."""
         portfolio = state.get("portfolio", {})
-        investment = portfolio.get("investment", {})
+        investment = state.get("investment", {})
         
         if asset_class not in investment:
             state["messages"].append({
@@ -323,9 +382,9 @@ I can choose funds using different criteria. Please select one:
         current_ticker = investment[asset_class]["ticker"]
         
         # Set up edit mode
-        portfolio["__investment_edit_mode__"] = True
-        portfolio["__investment_edit_asset_class__"] = asset_class
-        portfolio["__investment_edit_options__"] = available_funds
+        self._investment_edit_mode = True
+        self._investment_edit_asset_class = asset_class
+        self._investment_edit_options = available_funds
         
         # Display options
         options_text = "\n".join([f"{i+1}. {fund}" for i, fund in enumerate(available_funds)])
@@ -441,10 +500,14 @@ I can choose funds using different criteria. Please select one:
                 display_name = asset_class.replace("_", " ").title()
                 reasoning_text += f"• {display_name}: {data['selection_reason']}\n"
         
+        portfolio_message = f"**Your Tradeable Portfolio:**\n\n{table_text}\n\n*Total: 100.0%*\n\n{reasoning_text}\n\n**What would you like to do next?**\n• **Edit** specific asset classes\n• **Proceed** to trading\n• **Go back** to portfolio construction"
+
+        
         state["messages"].append({
             "role": "ai",
-            "content": f"**Your Tradeable Portfolio:**\n\n{table_text}\n\n*Total: 100.0%*\n\n{reasoning_text}"
+            "content": portfolio_message
         })
+
     
     def _select_best_fund_for_asset_class(self, asset_class: str, criteria: str = "balanced") -> Dict[str, Any]:
         """Select the best fund for a given asset class using fund analysis."""

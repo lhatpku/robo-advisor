@@ -157,6 +157,7 @@ class EntryAgent:
             {
                 "case": "proceed to investment after portfolio",
                 "have_risk": True,
+                "have_portfolio": True,
                 "last_ai": "Do you want to proceed to get a tradeable portfolio with selected funds?",
                 "last_user": "yes",
                 "expect": {"action": "proceed_investment", "equity": None}
@@ -164,6 +165,7 @@ class EntryAgent:
             {
                 "case": "user wants fund selection",
                 "have_risk": True,
+                "have_portfolio": True,
                 "last_ai": "Portfolio complete. What would you like to do next?",
                 "last_user": "select funds",
                 "expect": {"action": "proceed_investment", "equity": None}
@@ -171,6 +173,7 @@ class EntryAgent:
             {
                 "case": "proceed after portfolio exists",
                 "have_risk": True,
+                "have_portfolio": True,
                 "last_ai": "Review weights or proceed to ETF selection?",
                 "last_user": "proceed",
                 "expect": {"action": "proceed_investment", "equity": None}
@@ -179,6 +182,8 @@ class EntryAgent:
             {
                 "case": "proceed to trading after investment",
                 "have_risk": True,
+                "have_portfolio": True, 
+                "have_investment": True,  
                 "last_ai": "Ready to generate trading requests?",
                 "last_user": "yes",
                 "expect": {"action": "proceed_trading", "equity": None}
@@ -186,6 +191,8 @@ class EntryAgent:
             {
                 "case": "user wants trading",
                 "have_risk": True,
+                "have_portfolio": True, 
+                "have_investment": True,  
                 "last_ai": "Investment complete. What's next?",
                 "last_user": "generate trades",
                 "expect": {"action": "proceed_trading", "equity": None}
@@ -193,29 +200,19 @@ class EntryAgent:
             {
                 "case": "trade command",
                 "have_risk": True,
-                "last_ai": "Portfolio ready. Next steps?",
+                "have_portfolio": True, 
+                "have_investment": True,  
+                "last_ai": "Investment Portfolio ready. Next steps?",
                 "last_user": "trade",
                 "expect": {"action": "proceed_trading", "equity": None}
             },
             {
-                "case": "completion after investment",
+                "case": "trade command",
                 "have_risk": True,
-                "last_ai": "You can say 'review' to see your current portfolio...",
-                "last_user": "I am ok",
-                "expect": {"action": "proceed_trading", "equity": None}
-            },
-            {
-                "case": "done after investment",
-                "have_risk": True,
-                "last_ai": "You can say 'review' to see your current portfolio...",
-                "last_user": "done",
-                "expect": {"action": "proceed_trading", "equity": None}
-            },
-            {
-                "case": "next after investment",
-                "have_risk": True,
-                "last_ai": "You can say 'review' to see your current portfolio...",
-                "last_user": "next",
+                "have_portfolio": True, 
+                "have_investment": True,  
+                "last_ai": "Investment Portfolio ready. Next steps?",
+                "last_user": "proceed",
                 "expect": {"action": "proceed_trading", "equity": None}
             },
             # Reset equity
@@ -290,8 +287,12 @@ class EntryAgent:
             # risk flow owns the turn; do not speak or classify.
             return state
         
-        if state.get("intent_to_investment"):
+        if state.get("intent_to_investment") and not state.get("intent_to_trading"):
             # investment flow owns the turn; do not speak or classify.
+            return state
+
+        if state.get("intent_to_trading"):
+            # trading flow owns the turn; do not speak or classify.
             return state
 
         # --- INIT / GREETING: allow LLM to greet when starting or after returning here ---
@@ -366,7 +367,7 @@ class EntryAgent:
         # proceed_investment
         if action == "proceed_investment":
             portfolio = state.get("portfolio", {})
-            if portfolio and portfolio.get("portfolio"):
+            if portfolio:
                 state["intent_to_investment"] = True
                 return state
             else:
@@ -435,19 +436,27 @@ class EntryAgent:
 
         # Proceed to portfolio only when risk exists, user chose to proceed, and it's a user turn
         if state.get("risk") and state.get("intent_to_portfolio") and last_is_user:
+            # Clear the intent flags when routing to portfolio
+            state["intent_to_risk"] = False
             return "portfolio_agent"
 
         # Proceed to investment when portfolio exists and user chose to proceed
         if state.get("portfolio") and state.get("intent_to_investment") and last_is_user:
+            # Clear the intent flags when routing to investment
+            state["intent_to_portfolio"] = False
             return "investment_agent"
 
         # Proceed to trading when investment exists and user chose to proceed
-        portfolio = state.get("portfolio") or {}
-        if portfolio.get("investment") and state.get("intent_to_trading") and last_is_user:
+        if state.get("investment") and state.get("intent_to_trading") and last_is_user:
+            # Clear the intent flags when routing to trading
+            state["intent_to_investment"] = False
+            state["intent_to_trading"] = False
             return "trading_agent"
 
         # Start risk only when the user asked for guidance and we don't already have risk
         if state.get("intent_to_risk") and last_is_user:
+            # Clear the intent flag when routing to risk
+            state["intent_to_risk"] = False
             return "risk_agent"
 
         return "END"

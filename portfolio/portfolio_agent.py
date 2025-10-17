@@ -77,35 +77,71 @@ class PortfolioAgent:
             state["messages"].append({"role":"ai","content":"I need the equity/bond recommendation from the risk Agent before I can build the portfolio."})
             return state
 
-        # ensure defaults
-        inv = state.setdefault("portfolio", {}) or {}
-        state["portfolio"] = inv
-        inv.setdefault("lambda", DEFAULT_LAMBDA)
-        inv.setdefault("cash_reserve", DEFAULT_CASH_RESERVE)
-        # Use config instead of Excel file
-        inv.setdefault("mu_cov_xlsx_path", None)  # No longer needed
-
-        # One-time intro on entry
-        if not inv.get("__inv_intro_done__"):
-            state["messages"].append({
-                "role":"ai",
-                "content": (
-                    "Here's the plan: I'll build an asset-class portfolio using mean-variance optimization.\n"
-                    f"Defaults are **lambda = {inv['lambda']}** and **cash_reserve = {inv['cash_reserve']:.2f}**.\n"
-                    "Say \"set lambda to 1\", \"set cash to 0.05\", or just \"run\" to optimize now."
-                )
-            })
-            inv["__inv_intro_done__"] = True
-            return state
-
+        # Local parameters only
+        lam = DEFAULT_LAMBDA
+        cash_reserve = DEFAULT_CASH_RESERVE
+        
         # Only act on USER turns
         if not state.get("messages") or state["messages"][-1].get("role") != "user":
             return state
 
-        # If a portfolio already exists, ask LLM if the user intends to PROCEED (no keyword list)
-        if inv.get("portfolio") and state.get("messages") and state["messages"][-1].get("role") == "user":
-            last_user = state["messages"][-1].get("content", "")
-            if self.infer_proceed_intent(last_user):
+        last_user = state["messages"][-1].get("content", "").lower()
+
+        # Handle review command - show current portfolio or intro message
+        if any(word in last_user for word in ["review", "show", "display", "see", "current"]):
+            if state.get("portfolio"):
+                # Show current portfolio
+                table = self._format_portfolio(state["portfolio"])
+                state["messages"].append({
+                    "role":"ai",
+                    "content": f"**Your current portfolio:**\n\n{table}\n\n**What would you like to do next?**\n• **Edit** parameters (lambda, cash) and re-optimize\n• **Proceed** to ETF selection\n• **Go back** to risk assessment"
+                })
+            else:
+                # Show intro message if no portfolio exists
+                state["messages"].append({
+                    "role":"ai",
+                    "content": (
+                        "Here's the plan: I'll build an asset-class portfolio using mean-variance optimization.\n"
+                        f"Defaults are **lambda = {lam}** and **cash_reserve = {cash_reserve:.2f}**.\n"
+                        "Say \"set lambda to 1\", \"set cash to 0.05\", or just \"run\" to optimize now."
+                    )
+                })
+            return state
+
+        # Handle edit commands - show intro message again
+        if any(word in last_user for word in ["edit", "change", "modify", "adjust"]):
+            state["messages"].append({
+                "role":"ai",
+                "content": (
+                    "Here's the plan: I'll build an asset-class portfolio using mean-variance optimization.\n"
+                    f"Defaults are **lambda = {lam}** and **cash_reserve = {cash_reserve:.2f}**.\n"
+                    "Say \"set lambda to 1\", \"set cash to 0.05\", or just \"run\" to optimize now."
+                )
+            })
+            return state
+
+        # Show intro message if no portfolio exists yet, but still process user input
+        if not state.get("portfolio"):
+            # Check if user wants to run optimization
+            if "run" in last_user:
+                # User wants to run optimization, skip intro message and proceed
+                pass
+            else:
+                # Show intro message for other inputs
+                state["messages"].append({
+                    "role":"ai",
+                    "content": (
+                        "Here's the plan: I'll build an asset-class portfolio using mean-variance optimization.\n"
+                        f"Defaults are **lambda = {lam}** and **cash_reserve = {cash_reserve:.2f}**.\n"
+                        "Say \"set lambda to 1\", \"set cash to 0.05\", or just \"run\" to optimize now."
+                    )
+                })
+                return state
+
+        # Only route back to entry agent for explicit "proceed" commands
+        if state.get("portfolio") and state.get("messages") and state["messages"][-1].get("role") == "user":
+            last_user = state["messages"][-1].get("content", "").lower()
+            if last_user.strip() in ["proceed", "next", "continue", "go ahead", "move on"]:
                 state["messages"].append({"role": "ai", "content": "Great — proceeding to the next step."})
                 state["awaiting_input"] = False
                 state["intent_to_portfolio"] = False
@@ -114,7 +150,11 @@ class PortfolioAgent:
                 return state
 
         # Ask LLM to propose tool calls (single source of truth)
-        tool_calls = self.portfolio_manager._plan_tools_with_llm(state)
+        # Pass current parameters to the portfolio manager
+        state_with_params = state.copy()
+        state_with_params["current_lambda"] = lam
+        state_with_params["current_cash_reserve"] = cash_reserve
+        tool_calls = self.portfolio_manager._plan_tools_with_llm(state_with_params)
         if not tool_calls:
             state["messages"].append({"role":"ai","content":"Tell me \"run\" to execute the optimizer with current settings, or \"set lambda to X / set cash to Y\"."})
             return state
@@ -130,18 +170,19 @@ class PortfolioAgent:
                 res = self.portfolio_manager.execute_tool_call(call)
                 if res and res.get("ok"):
                     param = res["param"]
-                    inv[param] = res["new_value"]
-                    state["messages"].append({"role":"ai","content": f"{res['note']} (now {param} = {inv[param]})"})
+                    if param == "lambda":
+                        lam = res["new_value"]
+                    elif param == "cash_reserve":
+                        cash_reserve = res["new_value"]
+                    state["messages"].append({"role":"ai","content": f"{res['note']} (now {param} = {res['new_value']})"})
                 else:
                     state["messages"].append({"role":"ai","content": f"Could not update parameter: {res.get('note','invalid input')}"})
                 continue
 
             if name == "mean_variance_optimizer":
                 # Clamp cash for optimizer constraints
-                cr = float(inv.get("cash_reserve", DEFAULT_CASH_RESERVE))
                 min_cash, max_cash = get_cash_reserve_constraints()
-                clamped = min(max_cash, max(min_cash, cr))
-                lam = float(inv.get("lambda", DEFAULT_LAMBDA))
+                clamped = min(max_cash, max(min_cash, cash_reserve))
 
                 call_args = {
                     "risk_equity": float(risk.get("equity", 0.0)),
@@ -151,9 +192,9 @@ class PortfolioAgent:
                 }
                 res = self.portfolio_manager.execute_tool_call({"tool":"mean_variance_optimizer","args":call_args})
                 if isinstance(res, dict) and res:
-                    inv["portfolio"] = res
-                    note = "" if clamped == cr else f" (cash_reserve {cr:.2f} was clamped to {clamped:.2f})"
-                    table = self._format_portfolio(inv["portfolio"])
+                    state["portfolio"] = res
+                    note = "" if clamped == cash_reserve else f" (cash_reserve {cash_reserve:.2f} was clamped to {clamped:.2f})"
+                    table = self._format_portfolio(res)
                     state["messages"].append({"role":"ai","content": f"Optimization complete{note}. I've built your asset-class portfolio.\n\n{table}\n\n Review weights or proceed to ETF selection?"})
                     executed_optimizer = True
                 else:
