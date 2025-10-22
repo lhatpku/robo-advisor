@@ -14,10 +14,11 @@ load_dotenv()
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 # Import individual test modules (only working tests)
-from test_risk_assessment import test_risk_assessment_flow
+from test_comprehensive_risk_flow import test_comprehensive_risk_flow
 from test_simple_completion import test_simple_completion
 from test_start_over import test_start_over_functionality
 from test_reviewer_final_completion import test_reviewer_final_completion
+from test_risk_review_edit import test_risk_agent_review_edit, test_risk_agent_guidance_after_equity
 
 class UserFlowTestSuite:
     """Test suite for validating user flows in the robo-advisor application."""
@@ -29,8 +30,8 @@ class UserFlowTestSuite:
         """Run all user flow tests and return results."""
         print("=== Running User Flow Test Suite (Working Tests Only) ===\n")
         
-        # Test 1: Risk assessment flow
-        self.run_test("Risk Assessment", test_risk_assessment_flow)
+        # Test 1: Comprehensive risk assessment flow (covers direct equity + questionnaire)
+        self.run_test("Comprehensive Risk Assessment Flow", test_comprehensive_risk_flow)
         
         # Test 2: Simple final completion (working version)
         self.run_test("Simple Final Completion", test_simple_completion)
@@ -40,6 +41,12 @@ class UserFlowTestSuite:
         
         # Test 4: Reviewer final completion options
         self.run_test("Reviewer Final Completion", test_reviewer_final_completion)
+        
+        # Test 5: Risk agent review/edit functionality
+        self.run_test("Risk Agent Review/Edit", test_risk_agent_review_edit)
+        
+        # Test 6: Risk agent guidance after equity
+        self.run_test("Risk Agent Guidance After Equity", test_risk_agent_guidance_after_equity)
         
         # Print summary
         self.print_test_summary()

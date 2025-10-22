@@ -60,6 +60,7 @@ def build_graph(llm: ChatOpenAI):
     # All agents route to reviewer when done or end when waiting
     builder.add_conditional_edges("risk_agent", risk_agent.router, {
         "reviewer_agent": "reviewer_agent",
+        "risk_agent": "risk_agent",
         "__end__": END
     })
     

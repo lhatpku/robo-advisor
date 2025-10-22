@@ -11,13 +11,10 @@ from state import AgentState
 class EntryIntent(BaseModel):
     action: Literal[
         "greet",          # NEW
-        "set_equity",
-        "ask_risk",
+        "start_journey",  # User wants to begin the journey
         "proceed_portfolio",
         "proceed_investment",
         "proceed_trading",
-        "review",
-        "reset_equity",
         "smalltalk",
         "unknown",
     ] = "unknown"
@@ -44,29 +41,22 @@ class EntryAgent:
         have_investment: bool = False,
     ) -> dict:
         system = (
-            "You are a robo-advisor routing agent. Classify user intent and extract equity values.\n\n"
+            "You are a robo-advisor routing agent. Classify user intent for starting the journey.\n\n"
             "ACTIONS:\n"
             "• greet: New session or unclear intent\n"
-            "• set_equity: User provided equity weight (extract number 0.05-0.95)\n"
-            "• ask_risk: User wants risk questionnaire\n"
+            "• start_journey: User wants to begin the robo-advisor process\n"
             "• proceed_portfolio: User ready to build portfolio (requires existing risk assessment)\n"
             "• proceed_investment: User ready for fund selection (requires existing portfolio)\n"
             "• proceed_trading: User ready for trading execution (requires existing investment)\n"
-            "• review: User wants to set equity but provided no number\n"
-            "• reset_equity: User wants to clear current equity choice\n"
             "• smalltalk/unknown: General chat or unclear\n\n"
-            "EQUITY EXTRACTION:\n"
-            "• Convert percentages to decimals: '60%' → 0.60, '60' → 0.60\n"
-            "• Use first valid number found (0.05-0.95 range)\n"
-            "• Return null if no valid number\n\n"
             "DECISION RULES:\n"
-            "• 'set equity' without number → review (not ask_risk)\n"
-            "• Only ask_risk for explicit guidance requests\n"
+            "• 'proceed', 'next', 'start', 'begin', 'go' → start_journey ONLY if no risk exists yet\n"
+            "• If risk exists and user says 'proceed' → proceed_portfolio\n"
+            "• If portfolio exists and user says 'proceed' → proceed_investment\n"
+            "• If investment exists and user says 'proceed' → proceed_trading\n"
             "• Need risk assessment before proceed_portfolio\n"
             "• Need portfolio before proceed_investment\n"
             "• Need investment before proceed_trading\n"
-            "• When portfolio exists and user says 'proceed' → proceed_investment\n"
-            "• When investment exists and user says 'trade' → proceed_trading\n"
             "• Keep responses concise and helpful"
         )
 
@@ -79,149 +69,76 @@ class EntryAgent:
                 "last_user": "",
                 "expect": {"action": "greet", "equity": None}
             },
-            # User wants to set equity but no number -> REVIEW (not ask_risk)
+            # User wants to start journey
             {
-                "case": "user says 'set equity level' (no number)",
+                "case": "user says 'proceed'",
                 "have_risk": False,
-                "last_ai": "How can I assist you today?",
-                "last_user": "set equity level",
-                "expect": {"action": "review", "equity": None}
+                "last_ai": "I am a robo advisor, how can I assist you. Let me know if you want to start the journey, the first step is to define your risk profile.",
+                "last_user": "proceed",
+                "expect": {"action": "start_journey", "equity": None}
             },
             {
-                "case": "user says 'I can provide an equity weight' (no number)",
+                "case": "user says 'next'",
                 "have_risk": False,
-                "last_ai": "How can I assist you today?",
-                "last_user": "I can provide an equity weight",
-                "expect": {"action": "review", "equity": None}
+                "last_ai": "I am a robo advisor, how can I assist you. Let me know if you want to start the journey, the first step is to define your risk profile.",
+                "last_user": "next",
+                "expect": {"action": "start_journey", "equity": None}
             },
             {
-                "case": "user says 'I know my preference' (no number)",
+                "case": "user says 'start'",
                 "have_risk": False,
-                "last_ai": "You can provide an equity weight or ask for guidance.",
-                "last_user": "I know my preference",
-                "expect": {"action": "review", "equity": None}
-            },
-            # Numeric set equity
-            {
-                "case": "explicit decimal",
-                "have_risk": False,
-                "last_ai": "Provide an equity weight or ask for guidance.",
-                "last_user": "0.6",
-                "expect": {"action": "set_equity", "equity": 0.60}
+                "last_ai": "I am a robo advisor, how can I assist you. Let me know if you want to start the journey, the first step is to define your risk profile.",
+                "last_user": "start",
+                "expect": {"action": "start_journey", "equity": None}
             },
             {
-                "case": "explicit percent",
+                "case": "user says 'begin'",
                 "have_risk": False,
-                "last_ai": "Provide an equity weight or ask for guidance.",
-                "last_user": "60%",
-                "expect": {"action": "set_equity", "equity": 0.60}
+                "last_ai": "I am a robo advisor, how can I assist you. Let me know if you want to start the journey, the first step is to define your risk profile.",
+                "last_user": "begin",
+                "expect": {"action": "start_journey", "equity": None}
             },
+            # Proceed to portfolio when risk exists
             {
-                "case": "integer meaning percent",
-                "have_risk": False,
-                "last_ai": "Provide an equity weight.",
-                "last_user": "60",
-                "expect": {"action": "set_equity", "equity": 0.60}
-            },
-            # Guidance only when explicitly requested
-            {
-                "case": "guidance confirmation",
-                "have_risk": False,
-                "last_ai": "Would you like guidance to determine your equity/bond split?",
-                "last_user": "sure",
-                "expect": {"action": "ask_risk", "equity": None}
-            },
-            {
-                "case": "bare guidance", 
+                "case": "proceed to portfolio",
                 "have_risk": True,
-                "last_ai": "Current mix shown with options.", 
-                "last_user": "guidance",
-                "expect": {"action": "ask_risk", "equity": None}
-            },
-            {
-                "case": "use guidance phrase", 
-                "have_risk": True,
-                "last_ai": "To continue, you can set equity, use guidance, reset equity, or proceed.",
-                "last_user": "use guidance",
-                "expect": {"action": "ask_risk", "equity": None}
-            },
-            # Proceed to portfolio after risk exists
-            {
-                "case": "proceed after risk exists",
-                "have_risk": True,
-                "last_ai": "Shall I proceed to build your portfolio now?",
+                "last_ai": "Perfect! I've set your allocation to **60% equity / 40% bonds**.",
                 "last_user": "proceed",
                 "expect": {"action": "proceed_portfolio", "equity": None}
             },
-            # Proceed to investment after portfolio exists
             {
-                "case": "proceed to investment after portfolio",
+                "case": "proceed to portfolio after risk",
                 "have_risk": True,
-                "have_portfolio": True,
-                "last_ai": "Do you want to proceed to get a tradeable portfolio with selected funds?",
-                "last_user": "yes",
-                "expect": {"action": "proceed_investment", "equity": None}
+                "last_ai": "Risk assessment complete. Next steps?",
+                "last_user": "proceed",
+                "expect": {"action": "proceed_portfolio", "equity": None}
             },
+            # Proceed to investment when portfolio exists
             {
-                "case": "user wants fund selection",
+                "case": "proceed to investment",
                 "have_risk": True,
                 "have_portfolio": True,
-                "last_ai": "Portfolio complete. What would you like to do next?",
-                "last_user": "select funds",
-                "expect": {"action": "proceed_investment", "equity": None}
-            },
-            {
-                "case": "proceed after portfolio exists",
-                "have_risk": True,
-                "have_portfolio": True,
-                "last_ai": "Review weights or proceed to ETF selection?",
+                "last_ai": "Portfolio ready. Next steps?",
                 "last_user": "proceed",
                 "expect": {"action": "proceed_investment", "equity": None}
             },
-            # Proceed to trading after investment exists
+            # Proceed to trading when investment exists
             {
-                "case": "proceed to trading after investment",
+                "case": "proceed to trading",
                 "have_risk": True,
-                "have_portfolio": True, 
-                "have_investment": True,  
-                "last_ai": "Ready to generate trading requests?",
-                "last_user": "yes",
-                "expect": {"action": "proceed_trading", "equity": None}
-            },
-            {
-                "case": "user wants trading",
-                "have_risk": True,
-                "have_portfolio": True, 
-                "have_investment": True,  
-                "last_ai": "Investment complete. What's next?",
-                "last_user": "generate trades",
-                "expect": {"action": "proceed_trading", "equity": None}
-            },
-            {
-                "case": "trade command",
-                "have_risk": True,
-                "have_portfolio": True, 
-                "have_investment": True,  
-                "last_ai": "Investment Portfolio ready. Next steps?",
-                "last_user": "trade",
-                "expect": {"action": "proceed_trading", "equity": None}
-            },
-            {
-                "case": "trade command",
-                "have_risk": True,
-                "have_portfolio": True, 
-                "have_investment": True,  
-                "last_ai": "Investment Portfolio ready. Next steps?",
+                "have_portfolio": True,
+                "have_investment": True,
+                "last_ai": "Investment ready. Next steps?",
                 "last_user": "proceed",
                 "expect": {"action": "proceed_trading", "equity": None}
             },
-            # Reset equity
+            # Unknown/smalltalk
             {
-                "case": "reset equity",
-                "have_risk": True,
-                "last_ai": "Would you like to edit your equity or proceed?",
-                "last_user": "reset equity",
-                "expect": {"action": "reset_equity", "equity": None}
+                "case": "smalltalk",
+                "have_risk": False,
+                "last_ai": "I am a robo advisor, how can I assist you. Let me know if you want to start the journey, the first step is to define your risk profile.",
+                "last_user": "hello",
+                "expect": {"action": "smalltalk", "equity": None}
             },
         ]
 
@@ -302,16 +219,14 @@ class EntryAgent:
             intent = self._classify_entry_intent(have_risk, last_user="", last_ai=prev_ai, have_portfolio=have_portfolio)
             if intent.get("action") == "greet" or intent.get("reply"):
                 reply = (intent.get("reply") or
-                         ("How can I assist you today?\n"
-                          "• **Set equity** with a number (e.g., `0.60` or `60%`).\n"
-                          "• **Use guidance** to set equity by typing `use guidance`."))
+                         ("I am a robo advisor, how can I assist you. Let me know if you want to start the journey, the first step is to define your risk profile."))
                 state["messages"].append({"role":"ai","content": reply})
                 state["entry_greeted"] = True
                 return state
             # If the LLM didn't produce a greeting, set a concise default once
             state["messages"].append({
                 "role":"ai",
-                "content":"How can I assist you today? You can set an equity weight (0.05–0.95), or proceed to portfolioing if you already have provided already."
+                "content":"I am a robo advisor, how can I assist you. Let me know if you want to start the journey, the first step is to define your risk profile."
             })
             state["entry_greeted"] = True
             return state
@@ -333,32 +248,11 @@ class EntryAgent:
             if msg:
                 state["messages"].append({"role": "ai", "content": msg})
 
-        # set_equity
-        if action == "set_equity" and (equity is not None):
-            
-            try:
-                e = float(equity)
-            except Exception:
-                e = None
-            if e is None or not (0.05 <= e <= 0.95):
-                say("Please provide an equity allocation between **0.05 and 0.95** (e.g., 0.70 for 70%).")
-                return state
-            
-            state["risk"] = {"equity": float(e), "bond": round(1.0 - float(e), 6)}
-            e = float(state["risk"]["equity"])
-            b = 1.0 - e
-
-            say(
-                f"Updated: **{e*100:.0f}% equity / {b*100:.0f}% bonds**.\n"
-                "Would you like to **review/edit** this split or **proceed** to portfolio construction?"
-            )
+        # start_journey
+        if action == "start_journey":
+            state["intent_to_risk"] = True
             return state
-
-        # ask_risk
-        if action == "ask_risk":
-                state["intent_to_risk"] = True
-                return state
-
+        
         # proceed_portfolio
         if action == "proceed_portfolio" and have_risk:
                 state["intent_to_portfolio"] = True
@@ -404,75 +298,41 @@ class EntryAgent:
                         elif phase == "investment" and not have_investment:
                             next_phase = phase
                             break
-                        elif phase == "trading" and not have_trading:
+                        elif phase == "trading" and not state.get("trading_requests"):
                             next_phase = phase
                             break
                 
                 if next_phase:
-                    # Clear the ready_to_proceed state to prevent re-prompting
-                    state["ready_to_proceed"] = {}
-                    
-                    # Set the appropriate intent flag and route to the next phase
+                    # Set the appropriate intent flag
                     if next_phase == "risk":
                         state["intent_to_risk"] = True
-                        state["intent_to_portfolio"] = False
-                        state["intent_to_investment"] = False
-                        state["intent_to_trading"] = False
                     elif next_phase == "portfolio":
                         state["intent_to_portfolio"] = True
-                        state["intent_to_risk"] = False
-                        state["intent_to_investment"] = False
-                        state["intent_to_trading"] = False
                     elif next_phase == "investment":
                         state["intent_to_investment"] = True
-                        state["intent_to_risk"] = False
-                        state["intent_to_portfolio"] = False
-                        state["intent_to_trading"] = False
                     elif next_phase == "trading":
                         state["intent_to_trading"] = True
-                        state["intent_to_risk"] = False
-                        state["intent_to_portfolio"] = False
-                        state["intent_to_investment"] = False
-                return state
+                    
+                    # Clear the ready_to_proceed flag
+                    state["ready_to_proceed"] = None
+                    return state
+                else:
+                    # All phases are complete
+                    state["ready_to_proceed"] = None
+                    return state
+            else:
+                # User provided input but not a proceed command
+                # Clear the ready_to_proceed flag and process normally
+                state["ready_to_proceed"] = None
 
-        # reset_equity
-        if action == "reset_equity":
-            state["risk"] = None
-            say(
-                "Equity choice cleared. You can:\n"
-                "• **Set equity** now with a number (e.g., `0.70` or `70%`).\n"
-                "• Or **use guidance** to set equity by typing `use guidance`."
-            )
+        # Handle unknown actions
+        if action in ["smalltalk", "unknown"]:
+            say("I'm here to help you with your investment planning. Say 'proceed' to start the journey, or let me know how I can assist you.")
             return state
 
-        # review
-        if action == "review" and have_risk:
-            e = float(state["risk"]["equity"])
-            say(
-                f"Current mix: **{e*100:.0f}% equity / {(1-e)*100:.0f}% bonds**.\n"
-                "To continue, you can:\n"
-                "• **Use guidance** to reset the equity by answering the questionnaire by typing `use guidance`.\n"
-                "• **Reset equity** by typing `reset equity as`.\n"
-                "• Or **proceed** to portfolio construction."
-            )
-            return state
-
-        # smalltalk/unknown nudges
-        if not have_risk:
-            say(
-                reply or
-                "If you already know your equity preference, reply with a number between **0.05 and 0.95** "
-                "(e.g., 0.70). Otherwise, say you'd like guidance and I'll run a quick questionnaire."
-            )
-        else:
-            e = float(state["risk"]["equity"])
-            say(
-                reply or
-                f"You're at **{e*100:.0f}% equity / {(1-e)*100:.0f}% bonds**. "
-                "Would you like to **review/edit** this, or **proceed** to portfolio construction?"
-            )
-
-            return state
+        # Default fallback
+        say("I'm not sure what you'd like to do. You can say 'proceed' to start the investment planning journey.")
+        return state
 
     def router(self, state: AgentState) -> str:
         """
@@ -516,10 +376,7 @@ def robo_entry_agent_step(state: AgentState, llm: ChatOpenAI) -> AgentState:
     return agent.step(state)
 
 
-def router_from_entry(state: AgentState) -> str:
+def robo_entry_agent_router(state: AgentState, llm: ChatOpenAI) -> str:
     """Backward compatibility wrapper for the old function-based interface."""
-    # This is a bit tricky since we need an LLM instance, but the router doesn't use it
-    # We'll create a minimal agent just for the router
-    from langchain_openai import ChatOpenAI
-    agent = EntryAgent(ChatOpenAI())  # This won't be used in router
+    agent = EntryAgent(llm)
     return agent.router(state)

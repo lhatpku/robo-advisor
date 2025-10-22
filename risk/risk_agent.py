@@ -1,43 +1,48 @@
 # risk/risk_agent.py
 from __future__ import annotations
-from typing import TypedDict, List, Dict, Any, Optional, Tuple
+from typing import TypedDict, List, Dict, Any, Optional, Literal
 import re
-from dataclasses import asdict
+from pydantic import BaseModel, Field
 
 from langchain_openai import ChatOpenAI
-from langchain_core.messages import SystemMessage, HumanMessage, AIMessage, ToolMessage
+from langchain_core.messages import SystemMessage, HumanMessage, AIMessage
 
 from .risk_manager import RiskManager, MCQuestion, MCAnswer
 from state import AgentState
+from prompts.risk_prompts import (
+    RISK_INTENT_SYSTEM_PROMPT,
+    MODE_SELECTION_MESSAGE,
+    get_direct_equity_message,
+    get_review_edit_message,
+    get_questionnaire_question_template,
+    get_questionnaire_finalization_message,
+    UNKNOWN_INTENT_MESSAGE,
+    PROCEED_WITHOUT_RISK_MESSAGE,
+    INVALID_EQUITY_MESSAGE,
+    NO_RISK_ALLOCATION_MESSAGE,
+    UNKNOWN_QUESTIONNAIRE_RESPONSE_TEMPLATE
+)
+
+
+class RiskIntent(BaseModel):
+    """Structured output for risk agent intent classification."""
+    action: Literal[
+        "set_equity",           # User wants to set equity directly
+        "use_guidance",         # User wants to use questionnaire
+        "review_edit",          # User wants to review/edit current allocation
+        "proceed",              # User wants to proceed to next phase
+        "start_journey",        # User wants to start the risk assessment journey
+        "unknown"               # Unknown or unclear intent
+    ] = "unknown"
+    equity_value: Optional[float] = Field(default=None, ge=0.0, le=1.0)
+    reply: str = ""
 
 
 class RiskAgent:
     """
-    Risk assessment agent that conducts questionnaire-based risk profiling
-    and calculates appropriate asset allocation.
+    Risk assessment agent that handles both direct equity input and questionnaire-based risk profiling.
+    Uses local state management and structured LLM output for intent classification.
     """
-    
-    AGENT_SYSTEM_PROMPT = """\
-        You are a risk assessment agent conducting a 7-question financial questionnaire.
-
-        ROLE: Guide users through risk profiling to determine optimal asset allocation.
-
-        PROCESS:
-        1. Ask ONE question at a time (exactly as written)
-        2. Present numbered options (1-N) verbatim
-        3. Parse natural responses: "2", "second option", or phrase matches
-        4. If user asks "why", explain guidance briefly, then re-ask
-        5. After all 7 answers, calculate allocation and summarize results
-
-        STYLE: Professional, warm, concise. Never modify question text or options.
-        """
-
-    _ORDINALS = {
-        "first": 1, "1st": 1, "second": 2, "2nd": 2, "third": 3, "3rd": 3,
-        "fourth": 4, "4th": 4, "fifth": 5, "5th": 5, "sixth": 6, "6th": 6,
-        "seventh": 7, "7th": 7, "eighth": 8, "8th": 8, "ninth": 9, "9th": 9,
-        "tenth": 10, "10th": 10,
-    }
     
     def __init__(self, llm: ChatOpenAI):
         """
@@ -48,212 +53,328 @@ class RiskAgent:
         """
         self.llm = llm
         self.risk_manager = RiskManager()
+        
+        # Local state management (no global state fields)
+        self._risk_intro_done = False
+        self._in_questionnaire = False
+        self._current_question_idx = 0
+        
+        # Structured LLM for intent classification
+        self._structured_llm = llm.with_structured_output(RiskIntent).bind(temperature=0.0)
     
-    def _norm(self, s: str) -> str:
-        """Normalize string for comparison."""
-        return re.sub(r"\s+", " ", s.lower().strip())
+    def _classify_risk_intent(self, state: AgentState) -> RiskIntent:
+        """Classify user intent using structured LLM output."""
+        if not state.get("messages"):
+            return RiskIntent(action="unknown", equity_value=None, reply="")
+        
+        last_user_msg = ""
+        for msg in reversed(state["messages"]):
+            if msg.get("role") == "user":
+                last_user_msg = msg.get("content", "")
+                break
+        
+        if not last_user_msg:
+            return RiskIntent(action="unknown", equity_value=None, reply="")
+        
+        # Context information
+        has_risk = bool(state.get("risk"))
+        in_questionnaire = self._in_questionnaire
+        current_question_idx = self._current_question_idx
+        
+        system = RISK_INTENT_SYSTEM_PROMPT
+
+        user_prompt = f"""Context:
+- Has risk allocation: {has_risk}
+- In questionnaire: {in_questionnaire}
+- Current question index: {current_question_idx}
+
+User message: "{last_user_msg}"
+
+Classify the intent and extract equity value if applicable."""
+
+        try:
+            intent = self._structured_llm.invoke([
+                {"role": "system", "content": system},
+                {"role": "user", "content": user_prompt}
+            ])
+            
+            # Normalize return
+            if isinstance(intent, dict):
+                return RiskIntent(**intent)
+            elif hasattr(intent, "model_dump"):
+                return RiskIntent(**intent.model_dump())
+            elif hasattr(intent, "dict"):
+                return RiskIntent(**intent.dict())
+            else:
+                return RiskIntent(action="unknown", equity_value=None, reply="")
+                
+        except Exception:
+            return RiskIntent(action="unknown", equity_value=None, reply="")
     
-    def _wants_guidance(self, text: str) -> bool:
-        """Check if user is asking for guidance/explanation."""
-        t = self._norm(text)
-        return any(k in t for k in ["why", "explain", "not sure", "help", "what do you mean", "guidance"])
+    def _ask_mode_selection(self, state: AgentState) -> AgentState:
+        """Ask user to choose between direct equity or guidance."""
+        msg = MODE_SELECTION_MESSAGE
+        state["messages"].append({"role": "ai", "content": msg})
+        state["awaiting_input"] = True
+        return state
     
-    def _render_question(self, q: MCQuestion) -> str:
-        """Render question with numbered options."""
+    def _handle_direct_equity(self, state: AgentState, equity_value: float) -> AgentState:
+        """Handle direct equity input."""
+        # Validate equity range
+        if not (0.05 <= equity_value <= 0.95):
+            msg = INVALID_EQUITY_MESSAGE
+            state["messages"].append({"role": "ai", "content": msg})
+            state["awaiting_input"] = True
+            return state
+        
+        # Set risk allocation
+        state["risk"] = {"equity": equity_value, "bond": 1.0 - equity_value}
+        
+        # Show confirmation and ask to proceed or review
+        msg = get_direct_equity_message(equity_value)
+        state["messages"].append({"role": "ai", "content": msg})
+        state["done"] = True
+        state["awaiting_input"] = True
+        return state
+    
+    def _handle_review_edit(self, state: AgentState) -> AgentState:
+        """Handle review/edit commands."""
+        if not state.get("risk"):
+            msg = NO_RISK_ALLOCATION_MESSAGE
+            state["messages"].append({"role": "ai", "content": msg})
+            state["awaiting_input"] = True
+            return state
+        
+        current_equity = state["risk"]["equity"]
+        msg = get_review_edit_message(current_equity)
+        state["messages"].append({"role": "ai", "content": msg})
+        state["awaiting_input"] = True
+        return state
+    
+    def _handle_guidance_mode(self, state: AgentState) -> AgentState:
+        """Start questionnaire mode."""
+        # Reset questionnaire state
+        self._in_questionnaire = True
+        self._current_question_idx = 0
+        state["answers"] = {}
+        state["done"] = False
+        state["awaiting_input"] = False
+        
+        # Clear existing risk allocation to start fresh
+        state["risk"] = None
+        
+        # Start with first question
+        return self._ask_current_question(state)
+    
+    def _ask_current_question(self, state: AgentState) -> AgentState:
+        """Ask the current question in the questionnaire."""
+        if self._current_question_idx >= len(self.risk_manager.questions):
+            # All questions answered - finalize
+            return self._finalize_questionnaire(state)
+        
+        q = self.risk_manager.questions[self._current_question_idx]
+        
+        # Render question with numbered options
         lines = [q.text, ""]
         for i, opt in enumerate(q.options, start=1):
             lines.append(f"{i}) {opt}")
-        lines += ["", "Reply with the option number (e.g., '2'), or say 'I pick the second one'. If unsure, say 'why?'."]
-        return "\n".join(lines)
+        lines += ["", get_questionnaire_question_template()]
+        
+        msg = "\n".join(lines)
+        state["messages"].append({"role": "ai", "content": msg})
+        state["awaiting_input"] = True
+        return state
     
-    def _parse_choice(self, user_text: str, q: MCQuestion) -> Optional[Tuple[int, str]]:
+    def _handle_questionnaire_response(self, state: AgentState) -> AgentState:
+        """Handle user response to questionnaire question."""
+        if not state.get("messages") or state["messages"][-1].get("role") != "user":
+            return state
+        
+        # Check bounds
+        if self._current_question_idx >= len(self.risk_manager.questions):
+            # All questions answered - finalize
+            return self._finalize_questionnaire(state)
+        
+        last_user = state["messages"][-1]["content"]
+        q = self.risk_manager.questions[self._current_question_idx]
+        
+        # Handle "why" requests
+        if any(word in last_user.lower() for word in ["why", "explain", "not sure", "help"]):
+            msg = f"{q.guidance}\n\n{q.text}\n\n"
+            for i, opt in enumerate(q.options, start=1):
+                msg += f"{i}) {opt}\n"
+            msg += "\nReply with the option number (e.g., '2')."
+            state["messages"].append({"role": "ai", "content": msg})
+            state["awaiting_input"] = True
+            return state
+        
+        # Parse user's choice
+        choice_result = self._parse_choice(last_user, q)
+        if choice_result is None:
+            # Unclear input -> retry
+            options_text = "\n".join([f"{i}) {opt}" for i, opt in enumerate(q.options, start=1)])
+            msg = UNKNOWN_QUESTIONNAIRE_RESPONSE_TEMPLATE.format(
+                question_text=q.text,
+                options=options_text
+            ) + "\n\nReply with the option number (e.g., '2')."
+            state["messages"].append({"role": "ai", "content": msg})
+            state["awaiting_input"] = True
+            return state
+        
+        choice_idx, choice_text = choice_result
+        
+        # Store the answer
+        qid = q.id
+        if "answers" not in state:
+            state["answers"] = {}
+        state["answers"][qid] = {
+            "question_id": qid,
+            "selected_index": choice_idx,
+            "selected_label": choice_text,
+            "question_text": q.text,
+            "options": q.options,
+        }
+        
+        # Move to next question
+        self._current_question_idx += 1
+        
+        # Ask the next question immediately
+        return self._ask_current_question(state)
+    
+    def _parse_choice(self, user_text: str, q: MCQuestion) -> Optional[tuple[int, str]]:
         """Parse user input to extract selected option."""
-        text = self._norm(user_text)
-        # numeric
+        text = re.sub(r"\s+", " ", user_text.lower().strip())
+        
+        # Check for numeric input
         m = re.search(r"\b(\d{1,2})\b", text)
         if m:
             k = int(m.group(1))
             if 1 <= k <= len(q.options):
                 return k - 1, q.options[k - 1]
-        # ordinal
-        for w, n in self._ORDINALS.items():
-            if re.search(rf"\b{re.escape(w)}\b", text) and 1 <= n <= len(q.options):
-                return n - 1, q.options[n - 1]
-        # simple fuzzy token overlap
+        
+        # Check for ordinal words
+        ordinals = {
+            "first": 1, "1st": 1, "second": 2, "2nd": 2, "third": 3, "3rd": 3,
+            "fourth": 4, "4th": 4, "fifth": 5, "5th": 5, "sixth": 6, "6th": 6,
+            "seventh": 7, "7th": 7, "eighth": 8, "8th": 8, "ninth": 9, "9th": 9,
+            "tenth": 10, "10th": 10,
+        }
+        
+        for word, num in ordinals.items():
+            if re.search(rf"\b{re.escape(word)}\b", text) and 1 <= num <= len(q.options):
+                return num - 1, q.options[num - 1]
+        
+        # Simple fuzzy token overlap
         matches = []
         for i, opt in enumerate(q.options):
-            key = self._norm(opt)
+            key = re.sub(r"\s+", " ", opt.lower().strip())
             toks = [t for t in key.split() if len(t) > 2]
             hits = sum(1 for t in toks if t in text)
             if hits >= max(1, len(toks) // 2):
                 matches.append((i, opt))
+        
         if len(matches) == 1:
             return matches[0]
+        
         return None
     
-    def _ask_with_llm(self, q: MCQuestion) -> str:
-        """Ask question using LLM."""
-        system = SystemMessage(content=self.AGENT_SYSTEM_PROMPT)
-        dev = HumanMessage(content=f"Ask the following question EXACTLY as written, with numbered options:\n\n{self._render_question(q)}")
-        resp = self.llm.invoke([system, dev])
-        return resp.content if isinstance(resp, AIMessage) else str(resp)
-    
-    def _explain_and_ask_with_llm(self, q: MCQuestion) -> str:
-        """Explain guidance and re-ask question using LLM."""
-        system = SystemMessage(content=self.AGENT_SYSTEM_PROMPT)
-        dev = HumanMessage(content=(
-            "The user asked why. Briefly explain using this guidance (verbatim as needed), "
-            "then re-show the question with numbered options:\n\n"
-            f"Guidance:\n{q.guidance}\n\nQuestion and options:\n{self._render_question(q)}"
-        ))
-        resp = self.llm.invoke([system, dev])
-        return resp.content if isinstance(resp, AIMessage) else str(resp)
-    
-    def _retry_with_llm(self, q: MCQuestion) -> str:
-        """Retry asking question after unclear input using LLM."""
-        system = SystemMessage(content=self.AGENT_SYSTEM_PROMPT)
-        dev = HumanMessage(content=f"User input did not clearly map to an option. Apologize briefly and re-show:\n\n{self._render_question(q)}")
-        resp = self.llm.invoke([system, dev])
-        return resp.content if isinstance(resp, AIMessage) else str(resp)
-    
-    def _finalize_with_tool_and_llm(self, state: AgentState) -> AgentState:
-        """
-        Finalize risk assessment by calculating allocation and providing summary.
-        """
-        # 1) Calculate risk allocation using the risk manager
+    def _finalize_questionnaire(self, state: AgentState) -> AgentState:
+        """Finalize questionnaire and calculate risk allocation."""
+        # Calculate risk allocation using the risk manager
         result = self.risk_manager.calculate_risk_allocation(state["answers"])
         state["risk"] = result or {}
-
-        # 2) Build a deterministic summary (no LLM)
+        
+        # Build summary
         eq = float(state["risk"].get("equity", 0.0))
         bd = float(state["risk"].get("bond", 0.0))
         eq_pct = round(eq * 100.0, 1)
         bd_pct = round(bd * 100.0, 1)
-
-        # Map qid -> label from questions to ensure canonical labels
+        
+        # Map qid -> label from questions
         qlabel_by_id = {q.id: q.label for q in self.risk_manager.questions}
-
-        # Order the overview in the same order as questions
-        lines = []
-        lines.append("Thanks! Based on your responses, here's your preliminary portfolio guidance:")
-        lines.append("")
-        lines.append(f"**Allocation:** Equity {eq_pct:.1f}%  •  Bonds {bd_pct:.1f}%")
-        lines.append("")
-        lines.append("**Your answers** (for your records):")
-        for q in self.risk_manager.questions:
-            ans = state["answers"].get(q.id, {})
-            sel = ans.get("selected_label", "")
-            # Use the canonical label from MCQuestion
-            label = qlabel_by_id.get(q.id, q.id)
-            lines.append(f"- {label}: {sel}")
-
-        lines.append("")
-        lines.append(
-            "Note: This allocation is a starting point derived from your emergency savings, account concentration, "
-            "time horizon (adjusted for potential withdrawals), and your stated risk preferences. "
-            "If anything changes, we can revisit the questionnaire to update your allocation."
-        )
-
-        msg = "\n".join(lines)
+        
+        msg = get_questionnaire_finalization_message(eq_pct/100, bd_pct/100, state["answers"])
         state["messages"].append({"role": "ai", "content": msg})
-
-        state["awaiting_input"] = False
-        state["done"] = True                   
+        
+        # Reset questionnaire state
+        self._in_questionnaire = False
+        self._current_question_idx = 0
+        state["done"] = True
+        state["awaiting_input"] = True
+        
         return state
     
     def step(self, state: AgentState) -> AgentState:
         """
         Main step function for the risk agent.
-        
-        Args:
-            state: Current agent state
-            
-        Returns:
-            Updated agent state
+        Uses structured LLM output for intent classification and local state management.
         """
-        # finished already?
-        if state.get("done"):
+        # Only act on USER turns
+        if not state.get("messages") or state["messages"][-1].get("role") != "user":
             return state
-
-        # all questions answered -> finalize once
-        if state["q_idx"] >= len(self.risk_manager.questions):
-            # Sanity guard: if answers are incomplete, resume asking instead of finalizing
-            if len(state["answers"]) < len(self.risk_manager.questions):
-                state["done"] = False
-                state["awaiting_input"] = False
-                # jump to the first unanswered question
-                state["q_idx"] = len(state["answers"])
-                return state
-
-            if not state.get("awaiting_input", False):
+        
+        # Classify user intent
+        intent = self._classify_risk_intent(state)
+        action = intent.action
+        equity_value = intent.equity_value
+        
+        # Handle questionnaire responses
+        if self._in_questionnaire:
+            return self._handle_questionnaire_response(state)
+        
+        # Handle different actions
+        if action == "set_equity" and equity_value is not None:
+            return self._handle_direct_equity(state, equity_value)
+        
+        elif action == "start_journey":
+            return self._ask_mode_selection(state)
+        
+        elif action == "use_guidance":
+            return self._handle_guidance_mode(state)
+        
+        elif action == "review_edit":
+            return self._handle_review_edit(state)
+        
+        elif action == "proceed":
+            if state.get("risk"):
                 state["done"] = True
                 state["awaiting_input"] = False
-                return self._finalize_with_tool_and_llm(state)
-            return state  # no-op
-
-        q = self.risk_manager.questions[state["q_idx"]]
-
-        # If we haven't asked this question yet (awaiting_input is False), ask it now.
-        if not state.get("awaiting_input", False):
-            msg = self._ask_with_llm(q)
-            state["messages"].append({"role": "ai", "content": msg})
-            state["awaiting_input"] = True
-            return state
-
-        # We're awaiting input. Only proceed if the latest message is from the user.
-        if not state["messages"] or state["messages"][-1].get("role") != "user":
-            # No new user input since we asked -> do nothing (prevents double-ask)
-            return state
-
-        last_user = state["messages"][-1]["content"]
-
-        if self._wants_guidance(last_user):
-            msg = self._explain_and_ask_with_llm(q)
-            state["messages"].append({"role": "ai", "content": msg})
-            state["awaiting_input"] = True
-            return state
-
-        parsed = self._parse_choice(last_user, q)
-        if not parsed:
-            msg = self._retry_with_llm(q)
-            state["messages"].append({"role": "ai", "content": msg})
-            state["awaiting_input"] = True
-            return state
-
-        # record and advance
-        idx, label = parsed
-        mc = MCAnswer(selected_index=idx, selected_label=label, raw_user_text=last_user)
-        state["answers"][q.id] = asdict(mc)
-        state["q_idx"] += 1
-        state["awaiting_input"] = False
-
-        # If that was the last question, finalize on the next tick only once
-        if state["q_idx"] >= len(self.risk_manager.questions):
-            # Mark awaiting_input=False so it won't re-ask the last question on the next tick
-            state["awaiting_input"] = False
-            state["done"] = True
-            return self._finalize_with_tool_and_llm(state)
-
-        # Otherwise, ask the next question exactly once and await the next user turn
-        nxt = self.risk_manager.questions[state["q_idx"]]
-        msg = self._ask_with_llm(nxt)
-        state["messages"].append({"role": "ai", "content": msg})
-        state["awaiting_input"] = True
-        return state
-
+                return state
+            else:
+                msg = PROCEED_WITHOUT_RISK_MESSAGE
+                state["messages"].append({"role": "ai", "content": msg})
+                state["awaiting_input"] = True
+                return state
+        
+        else:
+            # Unknown action or no risk set yet - show intro or ask for clarification
+            if not state.get("risk") and not self._risk_intro_done:
+                self._risk_intro_done = True
+                return self._ask_mode_selection(state)
+            else:
+                msg = UNKNOWN_INTENT_MESSAGE
+                state["messages"].append({"role": "ai", "content": msg})
+                state["awaiting_input"] = True
+                return state
+    
     def router(self, state: AgentState) -> str:
         """
-        Router function that determines the next step based on risk agent completion.
-        Only routes to reviewer when completely done with all questions.
+        Router function that determines the next step based on state.
+        Simple routing logic like investment agent.
         """
-        # Only route to reviewer when completely done
-        if state.get("done", False):
-            return "reviewer_agent"
-        
-        # When waiting for input, don't route anywhere - just wait
+        # If awaiting input, go to end to wait for user input
         if state.get("awaiting_input", False):
             return "__end__"
         
-        # If not done and not awaiting input, go to end to wait for user input
+        # Check if user wants to use guidance mode (even if risk exists)
+        if state.get("messages") and state["messages"][-1].get("role") == "user":
+            last_user = state["messages"][-1]["content"].lower()
+            if any(word in last_user for word in ["guidance", "questionnaire", "help me decide"]):
+                return "__end__"  # Stay in risk agent to handle guidance
+        
+        # If risk exists and user wants to proceed, go to reviewer
+        if state.get("risk") and state.get("done", False):
+            return "reviewer_agent"
+        
+        # If risk doesn't exist yet, go to end to wait for user input
         return "__end__"
-
