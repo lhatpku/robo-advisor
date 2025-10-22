@@ -36,6 +36,23 @@ class InvestmentAgent:
         self._investment_edit_mode = False
         self._investment_edit_asset_class = None
         self._investment_edit_options = None
+        
+ 
+    def _get_status(self, state: AgentState, agent: str) -> Dict[str, bool]:
+        """Get status tracking for a specific agent."""
+        return state.get("status_tracking", {}).get(agent, {"done": False, "awaiting_input": False})
+    
+    def _set_status(self, state: AgentState, agent: str, done: bool = None, awaiting_input: bool = None) -> None:
+        """Set status tracking for a specific agent."""
+        if "status_tracking" not in state:
+            state["status_tracking"] = {}
+        if agent not in state["status_tracking"]:
+            state["status_tracking"][agent] = {"done": False, "awaiting_input": False}
+        
+        if done is not None:
+            state["status_tracking"][agent]["done"] = done
+        if awaiting_input is not None:
+            state["status_tracking"][agent]["awaiting_input"] = awaiting_input
     
     def step(self, state: Dict[str, Any]) -> Dict[str, Any]:
         """
@@ -47,6 +64,11 @@ class InvestmentAgent:
         Returns:
             Updated agent state
         """
+        # Initialize global state if first time
+        status = self._get_status(state, "investment")
+        if not status["awaiting_input"] and not status["done"]:
+            self._set_status(state, "investment", awaiting_input=True, done=False)
+        
         # Check if portfolio exists
         portfolio = state.get("portfolio", {})
         if not portfolio:
@@ -54,6 +76,24 @@ class InvestmentAgent:
                 "role": "ai", 
                 "content": "I need a portfolio allocation from the portfolio agent before I can help you select specific funds."
             })
+            return state
+        
+        # Show greeting message if first time
+        if not self._investment_intro_done:
+            state["messages"].append({
+                "role": "ai",
+                "content": (
+                    "**How would you like me to select funds for your portfolio?**\n\n"
+                    "I can choose funds using different criteria:\n\n"
+                    "1) **Balanced** - Mix of low-cost index funds and active funds\n"
+                    "2) **Low Cost** - Focus on lowest expense ratios\n"
+                    "3) **High Performance** - Focus on historical returns\n"
+                    "4) **ESG Focused** - Environmental, Social, and Governance criteria\n\n"
+                    "Please select a number (1-4) or type the criteria name."
+                )
+            })
+            self._set_status(state, "investment", awaiting_input=True, done=False)
+            self._investment_intro_done = True
             return state
         
         # Only act on USER turns
@@ -116,19 +156,6 @@ class InvestmentAgent:
         if state.get("investment"):
             return self._handle_existing_investment(state)
         
-        # One-time intro on entry
-        if not self._investment_intro_done:
-            state["messages"].append({
-                "role": "ai",
-                "content": (
-                    "Great! Now I'll help you convert your asset-class allocation into a tradeable portfolio "
-                    "with specific funds and ETFs.\n\n"
-                    "I'll select appropriate funds for each asset class based on your allocation weights. "
-                    "Would you like me to proceed with fund selection?"
-                )
-            })
-            self._investment_intro_done = True
-            return state
         
         # Handle user input for initial fund selection
         if any(word in last_user for word in ["yes", "proceed", "continue", "go ahead", "start"]):
@@ -328,7 +355,7 @@ I can choose funds using different criteria. Please select one:
             "role": "ai",
             "content": "You can say 'review' to see your current portfolio, mention an asset class name to edit it (e.g., 'large cap growth'), 'analyze [ticker]' to get detailed fund analysis, or 'proceed' to move to trading."
         })
-        state["awaiting_input"] = True
+        self._set_status(state, "investment", awaiting_input=True)
         return state
     
     def _handle_edit_mode(self, state: Dict[str, Any]) -> Dict[str, Any]:
@@ -396,7 +423,7 @@ I can choose funds using different criteria. Please select one:
             "content": f"Here are the available funds for {asset_class}{current_text}:\n\n{options_text}\n\nPlease select a number (1-{len(available_funds)}):"
         })
         
-        state["awaiting_input"] = True
+        self._set_status(state, "investment", awaiting_input=True)
         return state
     
     def _extract_asset_class(self, user_input: str) -> Optional[str]:
@@ -511,7 +538,7 @@ I can choose funds using different criteria. Please select one:
         })
         
         # Set awaiting_input to stay in investment agent
-        state["awaiting_input"] = True
+        self._set_status(state, "investment", awaiting_input=True)
 
     
     def _select_best_fund_for_asset_class(self, asset_class: str, criteria: str = "balanced") -> Dict[str, Any]:
@@ -657,11 +684,12 @@ I can choose funds using different criteria. Please select one:
         Route based on investment agent state.
         """
         # If awaiting input, go to end to wait for user input
-        if state.get("awaiting_input", False):
+        status = self._get_status(state, "investment")
+        if status["awaiting_input"]:
             return "__end__"
         
         # If investment exists and user wants to proceed, go to reviewer
-        if state.get("investment") and state.get("done", False):
+        if state.get("investment") and status["done"]:
             return "reviewer_agent"
         
         # If investment doesn't exist yet, go to end to wait for user input

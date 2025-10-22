@@ -62,6 +62,22 @@ class RiskAgent:
         # Structured LLM for intent classification
         self._structured_llm = llm.with_structured_output(RiskIntent).bind(temperature=0.0)
     
+    def _get_status(self, state: AgentState, agent: str) -> Dict[str, bool]:
+        """Get status tracking for a specific agent."""
+        return state.get("status_tracking", {}).get(agent, {"done": False, "awaiting_input": False})
+    
+    def _set_status(self, state: AgentState, agent: str, done: bool = None, awaiting_input: bool = None) -> None:
+        """Set status tracking for a specific agent."""
+        if "status_tracking" not in state:
+            state["status_tracking"] = {}
+        if agent not in state["status_tracking"]:
+            state["status_tracking"][agent] = {"done": False, "awaiting_input": False}
+        
+        if done is not None:
+            state["status_tracking"][agent]["done"] = done
+        if awaiting_input is not None:
+            state["status_tracking"][agent]["awaiting_input"] = awaiting_input
+    
     def _classify_risk_intent(self, state: AgentState) -> RiskIntent:
         """Classify user intent using structured LLM output."""
         if not state.get("messages"):
@@ -115,7 +131,7 @@ Classify the intent and extract equity value if applicable."""
         """Ask user to choose between direct equity or guidance."""
         msg = MODE_SELECTION_MESSAGE
         state["messages"].append({"role": "ai", "content": msg})
-        state["awaiting_input"] = True
+        self._set_status(state, "risk", awaiting_input=True)
         return state
     
     def _handle_direct_equity(self, state: AgentState, equity_value: float) -> AgentState:
@@ -124,7 +140,7 @@ Classify the intent and extract equity value if applicable."""
         if not (0.05 <= equity_value <= 0.95):
             msg = INVALID_EQUITY_MESSAGE
             state["messages"].append({"role": "ai", "content": msg})
-            state["awaiting_input"] = True
+            self._set_status(state, "risk", awaiting_input=True)
             return state
         
         # Set risk allocation
@@ -133,8 +149,8 @@ Classify the intent and extract equity value if applicable."""
         # Show confirmation and ask to proceed or review
         msg = get_direct_equity_message(equity_value)
         state["messages"].append({"role": "ai", "content": msg})
-        state["done"] = True
-        state["awaiting_input"] = True
+        self._set_status(state, "risk", done=True)
+        self._set_status(state, "risk", awaiting_input=True)
         return state
     
     def _handle_review_edit(self, state: AgentState) -> AgentState:
@@ -142,13 +158,13 @@ Classify the intent and extract equity value if applicable."""
         if not state.get("risk"):
             msg = NO_RISK_ALLOCATION_MESSAGE
             state["messages"].append({"role": "ai", "content": msg})
-            state["awaiting_input"] = True
+            self._set_status(state, "risk", awaiting_input=True)
             return state
         
         current_equity = state["risk"]["equity"]
         msg = get_review_edit_message(current_equity)
         state["messages"].append({"role": "ai", "content": msg})
-        state["awaiting_input"] = True
+        self._set_status(state, "risk", awaiting_input=True)
         return state
     
     def _handle_guidance_mode(self, state: AgentState) -> AgentState:
@@ -157,8 +173,8 @@ Classify the intent and extract equity value if applicable."""
         self._in_questionnaire = True
         self._current_question_idx = 0
         state["answers"] = {}
-        state["done"] = False
-        state["awaiting_input"] = False
+        self._set_status(state, "risk", done=False)
+        self._set_status(state, "risk", awaiting_input=False)
         
         # Clear existing risk allocation to start fresh
         state["risk"] = None
@@ -182,7 +198,7 @@ Classify the intent and extract equity value if applicable."""
         
         msg = "\n".join(lines)
         state["messages"].append({"role": "ai", "content": msg})
-        state["awaiting_input"] = True
+        self._set_status(state, "risk", awaiting_input=True)
         return state
     
     def _handle_questionnaire_response(self, state: AgentState) -> AgentState:
@@ -205,7 +221,7 @@ Classify the intent and extract equity value if applicable."""
                 msg += f"{i}) {opt}\n"
             msg += "\nReply with the option number (e.g., '2')."
             state["messages"].append({"role": "ai", "content": msg})
-            state["awaiting_input"] = True
+            self._set_status(state, "risk", awaiting_input=True)
             return state
         
         # Parse user's choice
@@ -218,7 +234,7 @@ Classify the intent and extract equity value if applicable."""
                 options=options_text
             ) + "\n\nReply with the option number (e.g., '2')."
             state["messages"].append({"role": "ai", "content": msg})
-            state["awaiting_input"] = True
+            self._set_status(state, "risk", awaiting_input=True)
             return state
         
         choice_idx, choice_text = choice_result
@@ -299,8 +315,8 @@ Classify the intent and extract equity value if applicable."""
         # Reset questionnaire state
         self._in_questionnaire = False
         self._current_question_idx = 0
-        state["done"] = True
-        state["awaiting_input"] = True
+        self._set_status(state, "risk", done=True)
+        self._set_status(state, "risk", awaiting_input=True)
         
         return state
     
@@ -309,6 +325,11 @@ Classify the intent and extract equity value if applicable."""
         Main step function for the risk agent.
         Uses structured LLM output for intent classification and local state management.
         """
+        # Initialize global state if first time
+        status = self._get_status(state, "risk")
+        if not status["awaiting_input"] and not status["done"]:
+            self._set_status(state, "risk", awaiting_input=True, done=False)
+        
         # Only act on USER turns
         if not state.get("messages") or state["messages"][-1].get("role") != "user":
             return state
@@ -337,13 +358,13 @@ Classify the intent and extract equity value if applicable."""
         
         elif action == "proceed":
             if state.get("risk"):
-                state["done"] = True
-                state["awaiting_input"] = False
+                self._set_status(state, "risk", done=True)
+                self._set_status(state, "risk", awaiting_input=False)
                 return state
             else:
                 msg = PROCEED_WITHOUT_RISK_MESSAGE
                 state["messages"].append({"role": "ai", "content": msg})
-                state["awaiting_input"] = True
+                self._set_status(state, "risk", awaiting_input=True)
                 return state
         
         else:
@@ -354,7 +375,7 @@ Classify the intent and extract equity value if applicable."""
             else:
                 msg = UNKNOWN_INTENT_MESSAGE
                 state["messages"].append({"role": "ai", "content": msg})
-                state["awaiting_input"] = True
+                self._set_status(state, "risk", awaiting_input=True)
                 return state
     
     def router(self, state: AgentState) -> str:
@@ -363,7 +384,8 @@ Classify the intent and extract equity value if applicable."""
         Simple routing logic like investment agent.
         """
         # If awaiting input, go to end to wait for user input
-        if state.get("awaiting_input", False):
+        status = self._get_status(state, "risk")
+        if status["awaiting_input"]:
             return "__end__"
         
         # Check if user wants to use guidance mode (even if risk exists)
@@ -373,7 +395,7 @@ Classify the intent and extract equity value if applicable."""
                 return "__end__"  # Stay in risk agent to handle guidance
         
         # If risk exists and user wants to proceed, go to reviewer
-        if state.get("risk") and state.get("done", False):
+        if state.get("risk") and status["done"]:
             return "reviewer_agent"
         
         # If risk doesn't exist yet, go to end to wait for user input

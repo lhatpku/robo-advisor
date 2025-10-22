@@ -23,6 +23,23 @@ class PortfolioAgent:
         """
         self.llm = llm
         self.portfolio_manager = PortfolioManager(llm)
+        
+    
+    def _get_status(self, state: AgentState, agent: str) -> Dict[str, bool]:
+        """Get status tracking for a specific agent."""
+        return state.get("status_tracking", {}).get(agent, {"done": False, "awaiting_input": False})
+    
+    def _set_status(self, state: AgentState, agent: str, done: bool = None, awaiting_input: bool = None) -> None:
+        """Set status tracking for a specific agent."""
+        if "status_tracking" not in state:
+            state["status_tracking"] = {}
+        if agent not in state["status_tracking"]:
+            state["status_tracking"][agent] = {"done": False, "awaiting_input": False}
+        
+        if done is not None:
+            state["status_tracking"][agent]["done"] = done
+        if awaiting_input is not None:
+            state["status_tracking"][agent]["awaiting_input"] = awaiting_input
     
     def _format_portfolio(self, portfolio: Dict[str, float]) -> str:
         """Return a compact markdown table of weights sorted by weight desc."""
@@ -72,6 +89,18 @@ class PortfolioAgent:
         Returns:
             Updated agent state
         """
+        # Initialize global state if first time
+        status = self._get_status(state, "portfolio")
+        if not status["awaiting_input"] and not status["done"]:
+            self._set_status(state, "portfolio", awaiting_input=True, done=False)
+        
+        # Use global state for persistence across graph invocations
+        status = self._get_status(state, "portfolio")
+        if not status["awaiting_input"]:
+            self._set_status(state, "portfolio", awaiting_input=True)
+        if not status["done"]:
+            self._set_status(state, "portfolio", done=False)
+        
         risk = state.get("risk") or {}
         if not risk:
             state["messages"].append({"role":"ai","content":"I need the equity/bond recommendation from the risk Agent before I can build the portfolio."})
@@ -146,8 +175,7 @@ class PortfolioAgent:
             last_user = state["messages"][-1].get("content", "").lower()
             if last_user.strip() in ["proceed", "next", "continue", "go ahead", "move on"]:
                 state["messages"].append({"role": "ai", "content": "Great — proceeding to the next step."})
-                state["awaiting_input"] = False
-                state["done"] = True
+                self._set_status(state, "portfolio", done=True, awaiting_input=False)
                 # Don't clear intent_to_portfolio here - let the reviewer agent handle the flow
                 return state
 
@@ -159,7 +187,7 @@ class PortfolioAgent:
         tool_calls = self.portfolio_manager._plan_tools_with_llm(state_with_params)
         if not tool_calls:
             state["messages"].append({"role":"ai","content":"Tell me \"run\" to execute the optimizer with current settings, or \"set lambda to X / set cash to Y\"."})
-            state["awaiting_input"] = True
+            self._set_status(state, "portfolio", awaiting_input=True)
             return state
 
         # Execute tool calls
@@ -181,11 +209,11 @@ class PortfolioAgent:
                     # Ask if user wants to run optimization
                     state["messages"].append({"role":"ai","content": f"Updated portfolio parameters: • Lambda: {lam} • Cash Reserve: {cash_reserve:.2f}\n\nSay 'run' to optimize or 'set lambda to X / set cash to Y' to adjust further."})
                     # Set awaiting_input to stay in portfolio agent
-                    state["awaiting_input"] = True
+                    self._set_status(state, "portfolio", awaiting_input=True)
                 else:
                     state["messages"].append({"role":"ai","content": f"Could not update parameter: {res.get('note','invalid input')}"})
                     # Set awaiting_input to stay in portfolio agent even on error
-                    state["awaiting_input"] = True
+                    self._set_status(state, "portfolio", awaiting_input=True)
                 continue
 
             if name == "mean_variance_optimizer":
@@ -206,6 +234,8 @@ class PortfolioAgent:
                     table = self._format_portfolio(res)
                     state["messages"].append({"role":"ai","content": f"Optimization complete{note}. I've built your asset-class portfolio.\n\n{table}\n\n Review weights or proceed to ETF selection?"})
                     executed_optimizer = True
+                    # Set awaiting_input to False and done to True so router can work
+                    self._set_status(state, "portfolio", awaiting_input=False, done=True)
                 else:
                     state["messages"].append({"role":"ai","content":f"Optimization didn't return a portfolio. Try lambda=1, cash={max_cash:.2f} and say \"run\"."})
                 continue
@@ -220,11 +250,12 @@ class PortfolioAgent:
         Route based on portfolio agent state.
         """
         # If awaiting input, go to end to wait for user input
-        if state.get("awaiting_input", False):
+        status = self._get_status(state, "portfolio")
+        if status["awaiting_input"]:
             return "__end__"
         
         # If portfolio exists and user wants to proceed, go to reviewer
-        if state.get("portfolio") and state.get("done", False):
+        if state.get("portfolio") and status["done"]:
             return "reviewer_agent"
         
         # If portfolio doesn't exist yet, go to end to wait for user input

@@ -99,11 +99,8 @@ if __name__ == "__main__":
     # Initial state (note: no extra fields beyond what's already defined in AgentState)
     state: AgentState = {
         "messages": [],
-        "q_idx": 0,
         "answers": {},
-        "done": False,
         "risk": None,
-        "awaiting_input": False,   # used by risk_agent
         "intent_to_risk": False,  # set by entry agent
         "intent_to_portfolio": False,
         "intent_to_investment": False,
@@ -114,7 +111,14 @@ if __name__ == "__main__":
         "trading_requests": None,
         "ready_to_proceed": None,
         "all_phases_complete": False,
-        "next_phase": None
+        "next_phase": None,
+        "status_tracking": {
+            "risk": {"done": False, "awaiting_input": False},
+            "portfolio": {"done": False, "awaiting_input": False},
+            "investment": {"done": False, "awaiting_input": False},
+            "trading": {"done": False, "awaiting_input": False},
+            "reviewer": {"done": False, "awaiting_input": False}
+        }
     }
 
     # --- INITIAL TICK to produce greeting ---

@@ -18,7 +18,7 @@ from test_comprehensive_risk_flow import test_comprehensive_risk_flow
 from test_simple_completion import test_simple_completion
 from test_start_over import test_start_over_functionality
 from test_reviewer_final_completion import test_reviewer_final_completion
-from test_risk_review_edit import test_risk_agent_review_edit, test_risk_agent_guidance_after_equity
+from test_portfolio_to_investment import test_portfolio_to_investment
 
 class UserFlowTestSuite:
     """Test suite for validating user flows in the robo-advisor application."""
@@ -42,11 +42,8 @@ class UserFlowTestSuite:
         # Test 4: Reviewer final completion options
         self.run_test("Reviewer Final Completion", test_reviewer_final_completion)
         
-        # Test 5: Risk agent review/edit functionality
-        self.run_test("Risk Agent Review/Edit", test_risk_agent_review_edit)
-        
-        # Test 6: Risk agent guidance after equity
-        self.run_test("Risk Agent Guidance After Equity", test_risk_agent_guidance_after_equity)
+        # Test 5: Portfolio to Investment transition
+        self.run_test("Portfolio to Investment Transition", test_portfolio_to_investment)
         
         # Print summary
         self.print_test_summary()

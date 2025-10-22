@@ -38,11 +38,8 @@ def test_simple_completion():
             {"role": "ai", "content": "Trading requests complete."},
             {"role": "user", "content": "proceed"}  # Add user message to make last_is_user=True
         ],
-        "q_idx": 0,
-        "answers": [],
-        "done": False,
+        "answers": {},
         "risk": {"equity": 0.6, "bond": 0.4},
-        "awaiting_input": False,
         "intent_to_risk": False,
         "entry_greeted": True,
         "intent_to_portfolio": False,
@@ -58,7 +55,14 @@ def test_simple_completion():
         },
         "ready_to_proceed": None,
         "all_phases_complete": False,
-        "next_phase": None
+        "next_phase": None,
+        "status_tracking": {
+            "risk": {"done": True, "awaiting_input": False},
+            "portfolio": {"done": True, "awaiting_input": False},
+            "investment": {"done": True, "awaiting_input": False},
+            "trading": {"done": True, "awaiting_input": False},
+            "reviewer": {"done": False, "awaiting_input": False}
+        }
     }
     
     print("📊 Initial state:")
@@ -74,8 +78,7 @@ def test_simple_completion():
         state = graph.invoke(state)
         print(f"✅ After graph invoke:")
         print(f"   All phases complete: {state.get('all_phases_complete')}")
-        print(f"   Done: {state.get('done')}")
-        print(f"   Awaiting input: {state.get('awaiting_input')}")
+        print(f"   Status tracking: {state.get('status_tracking')}")
         
         if state["messages"]:
             last_message = state["messages"][-1]

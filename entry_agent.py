@@ -215,8 +215,9 @@ class EntryAgent:
         # --- INIT / GREETING: allow LLM to greet when starting or after returning here ---
         if not msgs or (not last_is_user and not state.get("entry_greeted")):
             portfolio = state.get("portfolio") or {}
-            have_portfolio = bool(portfolio.get("portfolio"))
-            intent = self._classify_entry_intent(have_risk, last_user="", last_ai=prev_ai, have_portfolio=have_portfolio)
+            have_portfolio = bool(state.get("portfolio"))
+            have_investment = bool(state.get("investment"))
+            intent = self._classify_entry_intent(have_risk, last_user="", last_ai=prev_ai, have_portfolio=have_portfolio, have_investment=have_investment)
             if intent.get("action") == "greet" or intent.get("reply"):
                 reply = (intent.get("reply") or
                          ("I am a robo advisor, how can I assist you. Let me know if you want to start the journey, the first step is to define your risk profile."))
@@ -235,9 +236,8 @@ class EntryAgent:
         if not last_is_user:
             return state
 
-        portfolio = state.get("portfolio") or {}
-        have_portfolio = bool(portfolio.get("portfolio"))
-        have_investment = bool(portfolio.get("investment"))
+        have_portfolio = bool(state.get("portfolio"))
+        have_investment = bool(state.get("investment"))
         intent = self._classify_entry_intent(have_risk, last_user, prev_ai, have_portfolio, have_investment)
         action = (intent.get("action") or "unknown").strip().lower()
         reply  = (intent.get("reply")  or "").strip()

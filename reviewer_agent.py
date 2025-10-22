@@ -22,6 +22,26 @@ class ReviewerAgent:
     
     def __init__(self, llm: ChatOpenAI):
         self.llm = llm
+        
+        # Local state management
+        self._awaiting_input = False
+        self._done = False
+    
+    def _get_status(self, state: AgentState, agent: str) -> Dict[str, bool]:
+        """Get status tracking for a specific agent."""
+        return state.get("status_tracking", {}).get(agent, {"done": False, "awaiting_input": False})
+    
+    def _set_status(self, state: AgentState, agent: str, done: bool = None, awaiting_input: bool = None) -> None:
+        """Set status tracking for a specific agent."""
+        if "status_tracking" not in state:
+            state["status_tracking"] = {}
+        if agent not in state["status_tracking"]:
+            state["status_tracking"][agent] = {"done": False, "awaiting_input": False}
+        
+        if done is not None:
+            state["status_tracking"][agent]["done"] = done
+        if awaiting_input is not None:
+            state["status_tracking"][agent]["awaiting_input"] = awaiting_input
     
     def _validate_phase_completion(self, state: AgentState, phase: str) -> Tuple[bool, str]:
         """
@@ -96,6 +116,11 @@ class ReviewerAgent:
         Main step function for the reviewer agent.
         Validates completion and sets ready_to_proceed or all_phases_complete flags.
         """
+        # Initialize global state if first time
+        status = self._get_status(state, "reviewer")
+        if not status["awaiting_input"] and not status["done"]:
+            self._set_status(state, "reviewer", awaiting_input=False, done=False)
+        
         # Get validation status for all phases
         phases = ["risk", "portfolio", "investment", "trading"]
         validation_results = {}
@@ -128,7 +153,7 @@ class ReviewerAgent:
                 _, feedback = validation_results[phase_name]
                 
                 # Reset done flag for the phase being continued
-                state["done"] = False
+                self._set_status(state, "reviewer", done=False)
                 
                 # Provide feedback to user
                 state["messages"].append({
@@ -182,8 +207,16 @@ class ReviewerAgent:
                     state["intent_to_investment"] = False
                     state["intent_to_trading"] = False
                     state["entry_greeted"] = False
-                    state["done"] = False
-                    state["awaiting_input"] = False
+                    
+                    # Reset status tracking for all agents
+                    state["status_tracking"] = {
+                        "risk": {"done": False, "awaiting_input": False},
+                        "portfolio": {"done": False, "awaiting_input": False},
+                        "investment": {"done": False, "awaiting_input": False},
+                        "trading": {"done": False, "awaiting_input": False},
+                        "reviewer": {"done": False, "awaiting_input": False}
+                    }
+                    self._set_status(state, "reviewer", done=False, awaiting_input=False)
                     
                     # Clear messages and start fresh
                     state["messages"] = []
@@ -263,7 +296,7 @@ class ReviewerAgent:
             phase_name = incomplete_started_phases[0]
             # Only reset done flag if the phase is actually incomplete
             if not validation_results[phase_name][0]:  # if not complete
-                state["done"] = False
+                self._set_status(state, "reviewer", done=False)
             if phase_name == "risk":
                 return "risk_agent"
             elif phase_name == "portfolio":

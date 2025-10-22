@@ -35,8 +35,31 @@ class TradingAgent:
         self._tax_sensitivity = "moderate"
         self._integer_shares = True
         
+
+    
+    def _get_status(self, state: AgentState, agent: str) -> Dict[str, bool]:
+        """Get status tracking for a specific agent."""
+        return state.get("status_tracking", {}).get(agent, {"done": False, "awaiting_input": False})
+    
+    def _set_status(self, state: AgentState, agent: str, done: bool = None, awaiting_input: bool = None) -> None:
+        """Set status tracking for a specific agent."""
+        if "status_tracking" not in state:
+            state["status_tracking"] = {}
+        if agent not in state["status_tracking"]:
+            state["status_tracking"][agent] = {"done": False, "awaiting_input": False}
+        
+        if done is not None:
+            state["status_tracking"][agent]["done"] = done
+        if awaiting_input is not None:
+            state["status_tracking"][agent]["awaiting_input"] = awaiting_input
+        
     def step(self, state: AgentState) -> AgentState:
         """Main step function for trading agent"""
+        # Initialize global state if first time
+        status = self._get_status(state, "trading")
+        if not status["awaiting_input"] and not status["done"]:
+            self._set_status(state, "trading", awaiting_input=True, done=False)
+        
         # Check if we have an investment portfolio to work with
         portfolio = state.get("portfolio", {})
         investment = state.get("investment", {})
@@ -46,13 +69,12 @@ class TradingAgent:
                 "role": "ai", 
                 "content": "I need an investment portfolio before I can generate trading requests. Please complete the investment selection first."
             })
-            state["awaiting_input"] = True
+            self._set_status(state, "trading", awaiting_input=True)
             return state
         
         # Check if trading requests already exist - if so, just mark as done
         if state.get("trading_requests") and isinstance(state.get("trading_requests"), dict) and "trading_requests" in state.get("trading_requests", {}):
-            state["done"] = True
-            state["awaiting_input"] = False
+            self._set_status(state, "trading", done=True, awaiting_input=False)
             return state
         
         # Always show demo scenarios first (unless already selected)
@@ -63,7 +85,7 @@ class TradingAgent:
                 "role": "ai",
                 "content": self._get_scenario_selection_message()
             })
-            state["awaiting_input"] = True
+            self._set_status(state, "trading", awaiting_input=True)
             return state
         
         # Check if user is selecting a scenario
@@ -81,7 +103,7 @@ class TradingAgent:
                 "role": "ai",
                 "content": "Great! You've selected a demo scenario. Type 'yes' or 'proceed' to generate trading requests, or select a different scenario (1-6)."
             })
-            state["awaiting_input"] = True
+            self._set_status(state, "trading", awaiting_input=True)
             return state
         elif not self._demo_scenario:
             # No scenario selected yet, show scenarios
@@ -89,19 +111,19 @@ class TradingAgent:
                 "role": "ai",
                 "content": "Please select a demo scenario (1-6) to proceed with trading requests."
             })
-            state["awaiting_input"] = True
+            self._set_status(state, "trading", awaiting_input=True)
             return state
         else:
             # No valid scenario or confirmation, wait for input
-            state["awaiting_input"] = True
+            self._set_status(state, "trading", awaiting_input=True)
             return state
         
         # Generate trading requests
         try:
             trading_result = self._generate_trading_requests(state, investment)
             state["trading_requests"] = trading_result
-            state["awaiting_input"] = True
-            state["done"] = True
+            self._set_status(state, "trading", awaiting_input=True)
+            self._set_status(state, "trading", done=True)
             
             # Display trading requests
             state["messages"].append({
@@ -118,7 +140,7 @@ class TradingAgent:
                 "role": "ai",
                 "content": f"I encountered an error generating trading requests: {str(e)}. This might be because you're using your actual portfolio instead of a demo scenario. Please try selecting a demo scenario (1-6) instead."
             })
-            state["awaiting_input"] = True
+            self._set_status(state, "trading", awaiting_input=True)
         
         return state
     
@@ -201,21 +223,21 @@ class TradingAgent:
                     "role": "ai",
                     "content": self._format_scenario_summary(scenario)
                 })
-                state["awaiting_input"] = True
+                self._set_status(state, "trading", awaiting_input=True)
                 return state
             else:
                 state["messages"].append({
                     "role": "ai",
                     "content": f"Please select a number between 1 and {len(self.demo_scenarios['scenarios'])}."
                 })
-                state["awaiting_input"] = True
+                self._set_status(state, "trading", awaiting_input=True)
                 return state
         except ValueError:
             state["messages"].append({
                 "role": "ai",
                 "content": "Please enter a valid number (1-6) or 'custom' for your own portfolio."
             })
-            state["awaiting_input"] = True
+            self._set_status(state, "trading", awaiting_input=True)
             return state
     
     def _convert_scenario_positions(self, positions: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
@@ -410,7 +432,7 @@ class TradingAgent:
                 "role": "ai",
                 "content": "I didn't understand that trading command. Type 'help' to see available commands."
             })
-            state["awaiting_input"] = True
+            self._set_status(state, "trading", awaiting_input=True)
         
         return state
     
@@ -423,7 +445,7 @@ class TradingAgent:
                 "role": "ai",
                 "content": "No trading requests available to execute. Please generate them first."
             })
-            state["awaiting_input"] = True
+            self._set_status(state, "trading", awaiting_input=True)
             return state
         
         # Simulate execution
@@ -443,7 +465,7 @@ class TradingAgent:
             "role": "ai",
             "content": f"✅ **Trades Executed Successfully!**\n\nExecuted {len(executed_trades)} trades. Your portfolio has been rebalanced according to the optimization results.\n\n**Next Steps:**\n• Monitor performance vs. targets\n• Review tax implications\n• Plan next rebalancing cycle"
         })
-        state["awaiting_input"] = True
+        self._set_status(state, "trading", awaiting_input=True)
         
         return state
     
@@ -456,7 +478,7 @@ class TradingAgent:
                 "role": "ai",
                 "content": "Please specify a ticker to analyze. Example: 'analyze VTI'"
             })
-            state["awaiting_input"] = True
+            self._set_status(state, "trading", awaiting_input=True)
             return state
         
         ticker = parts[1].upper()
@@ -474,7 +496,7 @@ class TradingAgent:
                 "role": "ai",
                 "content": f"No trading request found for {ticker}. Please check the ticker symbol."
             })
-            state["awaiting_input"] = True
+            self._set_status(state, "trading", awaiting_input=True)
             return state
         
         # Create detailed analysis
@@ -483,7 +505,7 @@ class TradingAgent:
             "role": "ai",
             "content": analysis
         })
-        state["awaiting_input"] = True
+        self._set_status(state, "trading", awaiting_input=True)
         
         return state
     
@@ -572,7 +594,7 @@ class TradingAgent:
             "role": "ai",
             "content": help_text
         })
-        state["awaiting_input"] = True
+        self._set_status(state, "trading", awaiting_input=True)
         
         return state
 
@@ -581,11 +603,12 @@ class TradingAgent:
         Route based on trading agent state.
         """
         # If trading requests exist and done, go to reviewer (priority over awaiting_input)
-        if state.get("trading_requests") and state.get("done", False):
+        status = self._get_status(state, "trading")
+        if state.get("trading_requests") and status["done"]:
             return "reviewer_agent"
         
         # If awaiting input, go to end to wait for user input
-        if state.get("awaiting_input", False):
+        if status["awaiting_input"]:
             return "__end__"
         
         # If trading requests don't exist yet, go to end to wait for user input
