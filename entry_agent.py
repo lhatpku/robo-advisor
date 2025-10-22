@@ -27,8 +27,8 @@ class EntryIntent(BaseModel):
 
 class EntryAgent:
     """
-    LLM-powered entry agent that decides if the user wants to start risk assessment
-    and replies once per user turn.
+    LLM-powered entry agent that manages the conversation flow and sets intent flags.
+    Only agent that sets intent_to_* flags based on user responses to proceed prompts.
     """
     
     def __init__(self, llm: ChatOpenAI):
@@ -286,14 +286,14 @@ class EntryAgent:
         if state.get("intent_to_risk"):
             # risk flow owns the turn; do not speak or classify.
             return state
-        
+
         if state.get("intent_to_investment") and not state.get("intent_to_trading"):
             # investment flow owns the turn; do not speak or classify.
             return state
-
+        
         if state.get("intent_to_trading"):
             # trading flow owns the turn; do not speak or classify.
-            return state
+                return state
 
         # --- INIT / GREETING: allow LLM to greet when starting or after returning here ---
         if not msgs or (not last_is_user and not state.get("entry_greeted")):
@@ -343,7 +343,7 @@ class EntryAgent:
             if e is None or not (0.05 <= e <= 0.95):
                 say("Please provide an equity allocation between **0.05 and 0.95** (e.g., 0.70 for 70%).")
                 return state
-
+            
             state["risk"] = {"equity": float(e), "bond": round(1.0 - float(e), 6)}
             e = float(state["risk"]["equity"])
             b = 1.0 - e
@@ -356,13 +356,13 @@ class EntryAgent:
 
         # ask_risk
         if action == "ask_risk":
-            state["intent_to_risk"] = True
-            return state
+                state["intent_to_risk"] = True
+                return state
 
         # proceed_portfolio
         if action == "proceed_portfolio" and have_risk:
-            state["intent_to_portfolio"] = True
-            return state
+                state["intent_to_portfolio"] = True
+                return state
 
         # proceed_investment
         if action == "proceed_investment":
@@ -383,10 +383,57 @@ class EntryAgent:
                 say("I need to complete your investment selection first before generating trading requests. Let me help you with that.")
                 return state
 
-        # Handle completion after investment (user says "done", "ok", etc.)
-        if have_investment and any(word in last_user for word in ["done", "ok", "okay", "good", "fine", "next", "proceed", "continue", "ready", "complete", "finished", "trade", "trading"]):
-            say("Great! Your investment portfolio is complete. Would you like to proceed to generate trading requests to see how to execute this portfolio?")
-            return state
+
+        # Handle phase ready prompt from reviewer (automatic or with user input)
+        if state.get("ready_to_proceed"):
+            # Process automatically if no user input, or if user says proceed
+            if not last_user or any(word in last_user.lower() for word in ["yes", "proceed", "continue", "next", "go ahead", "ready"]):
+                
+                # Find the next phase that's ready to proceed
+                ready_to_proceed = state.get("ready_to_proceed", {})
+                next_phase = None
+                for phase, ready in ready_to_proceed.items():
+                    if ready:
+                        # Check if this phase hasn't been completed yet
+                        if phase == "risk" and not have_risk:
+                            next_phase = phase
+                            break
+                        elif phase == "portfolio" and not have_portfolio:
+                            next_phase = phase
+                            break
+                        elif phase == "investment" and not have_investment:
+                            next_phase = phase
+                            break
+                        elif phase == "trading" and not have_trading:
+                            next_phase = phase
+                            break
+                
+                if next_phase:
+                    # Clear the ready_to_proceed state to prevent re-prompting
+                    state["ready_to_proceed"] = {}
+                    
+                    # Set the appropriate intent flag and route to the next phase
+                    if next_phase == "risk":
+                        state["intent_to_risk"] = True
+                        state["intent_to_portfolio"] = False
+                        state["intent_to_investment"] = False
+                        state["intent_to_trading"] = False
+                    elif next_phase == "portfolio":
+                        state["intent_to_portfolio"] = True
+                        state["intent_to_risk"] = False
+                        state["intent_to_investment"] = False
+                        state["intent_to_trading"] = False
+                    elif next_phase == "investment":
+                        state["intent_to_investment"] = True
+                        state["intent_to_risk"] = False
+                        state["intent_to_portfolio"] = False
+                        state["intent_to_trading"] = False
+                    elif next_phase == "trading":
+                        state["intent_to_trading"] = True
+                        state["intent_to_risk"] = False
+                        state["intent_to_portfolio"] = False
+                        state["intent_to_investment"] = False
+                return state
 
         # reset_equity
         if action == "reset_equity":
@@ -425,7 +472,7 @@ class EntryAgent:
                 "Would you like to **review/edit** this, or **proceed** to portfolio construction?"
             )
 
-        return state
+            return state
 
     def router(self, state: AgentState) -> str:
         """
@@ -459,7 +506,7 @@ class EntryAgent:
             state["intent_to_risk"] = False
             return "risk_agent"
 
-        return "END"
+        return "__end__"
 
 
 # Backward compatibility functions

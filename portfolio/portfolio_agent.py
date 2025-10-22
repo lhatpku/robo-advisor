@@ -81,6 +81,9 @@ class PortfolioAgent:
         lam = DEFAULT_LAMBDA
         cash_reserve = DEFAULT_CASH_RESERVE
         
+        # Get dynamic constraints from config
+        min_cash, max_cash = get_cash_reserve_constraints()
+        
         # Only act on USER turns
         if not state.get("messages") or state["messages"][-1].get("role") != "user":
             return state
@@ -103,7 +106,7 @@ class PortfolioAgent:
                     "content": (
                         "Here's the plan: I'll build an asset-class portfolio using mean-variance optimization.\n"
                         f"Defaults are **lambda = {lam}** and **cash_reserve = {cash_reserve:.2f}**.\n"
-                        "Say \"set lambda to 1\", \"set cash to 0.05\", or just \"run\" to optimize now."
+                        f"Say \"set lambda to 1\", \"set cash to {max_cash:.2f}\", or just \"run\" to optimize now."
                     )
                 })
             return state
@@ -115,7 +118,7 @@ class PortfolioAgent:
                 "content": (
                     "Here's the plan: I'll build an asset-class portfolio using mean-variance optimization.\n"
                     f"Defaults are **lambda = {lam}** and **cash_reserve = {cash_reserve:.2f}**.\n"
-                    "Say \"set lambda to 1\", \"set cash to 0.05\", or just \"run\" to optimize now."
+                    f"Say \"set lambda to 1\", \"set cash to {max_cash:.2f}\", or just \"run\" to optimize now."
                 )
             })
             return state
@@ -133,7 +136,7 @@ class PortfolioAgent:
                     "content": (
                         "Here's the plan: I'll build an asset-class portfolio using mean-variance optimization.\n"
                         f"Defaults are **lambda = {lam}** and **cash_reserve = {cash_reserve:.2f}**.\n"
-                        "Say \"set lambda to 1\", \"set cash to 0.05\", or just \"run\" to optimize now."
+                        f"Say \"set lambda to 1\", \"set cash to {max_cash:.2f}\", or just \"run\" to optimize now."
                     )
                 })
                 return state
@@ -144,9 +147,8 @@ class PortfolioAgent:
             if last_user.strip() in ["proceed", "next", "continue", "go ahead", "move on"]:
                 state["messages"].append({"role": "ai", "content": "Great — proceeding to the next step."})
                 state["awaiting_input"] = False
-                state["intent_to_portfolio"] = False
-                state["intent_to_investment"] = True  # Route to investment agent
-                state["done"] = True   
+                state["done"] = True
+                # Don't clear intent_to_portfolio here - let the reviewer agent handle the flow
                 return state
 
         # Ask LLM to propose tool calls (single source of truth)
@@ -157,6 +159,7 @@ class PortfolioAgent:
         tool_calls = self.portfolio_manager._plan_tools_with_llm(state_with_params)
         if not tool_calls:
             state["messages"].append({"role":"ai","content":"Tell me \"run\" to execute the optimizer with current settings, or \"set lambda to X / set cash to Y\"."})
+            state["awaiting_input"] = True
             return state
 
         # Execute tool calls
@@ -175,8 +178,14 @@ class PortfolioAgent:
                     elif param == "cash_reserve":
                         cash_reserve = res["new_value"]
                     state["messages"].append({"role":"ai","content": f"{res['note']} (now {param} = {res['new_value']})"})
+                    # Ask if user wants to run optimization
+                    state["messages"].append({"role":"ai","content": f"Updated portfolio parameters: • Lambda: {lam} • Cash Reserve: {cash_reserve:.2f}\n\nSay 'run' to optimize or 'set lambda to X / set cash to Y' to adjust further."})
+                    # Set awaiting_input to stay in portfolio agent
+                    state["awaiting_input"] = True
                 else:
                     state["messages"].append({"role":"ai","content": f"Could not update parameter: {res.get('note','invalid input')}"})
+                    # Set awaiting_input to stay in portfolio agent even on error
+                    state["awaiting_input"] = True
                 continue
 
             if name == "mean_variance_optimizer":
@@ -198,11 +207,26 @@ class PortfolioAgent:
                     state["messages"].append({"role":"ai","content": f"Optimization complete{note}. I've built your asset-class portfolio.\n\n{table}\n\n Review weights or proceed to ETF selection?"})
                     executed_optimizer = True
                 else:
-                    state["messages"].append({"role":"ai","content":"Optimization didn't return a portfolio. Try lambda=1, cash=0.05 and say \"run\"."})
+                    state["messages"].append({"role":"ai","content":f"Optimization didn't return a portfolio. Try lambda=1, cash={max_cash:.2f} and say \"run\"."})
                 continue
 
             # Unknown tool name
             state["messages"].append({"role":"ai","content": f"(Skipping unknown tool: {name})"})
 
         return state
+
+    def router(self, state: AgentState) -> str:
+        """
+        Route based on portfolio agent state.
+        """
+        # If awaiting input, go to end to wait for user input
+        if state.get("awaiting_input", False):
+            return "__end__"
+        
+        # If portfolio exists and user wants to proceed, go to reviewer
+        if state.get("portfolio") and state.get("done", False):
+            return "reviewer_agent"
+        
+        # If portfolio doesn't exist yet, go to end to wait for user input
+        return "__end__"
 

@@ -6,7 +6,7 @@ import os
 import json
 from langchain.tools import tool
 from langchain_openai import ChatOpenAI
-from portfolio.config import get_expected_returns, get_covariance_matrix, ASSET_CLASSES, get_cash_reserve_constraints, validate_cash_reserve
+from portfolio.config import get_expected_returns, get_covariance_matrix, ASSET_CLASSES, get_cash_reserve_constraints, validate_cash_reserve, DEFAULT_LAMBDA, DEFAULT_CASH_RESERVE
 
 
 class PortfolioManager:
@@ -242,8 +242,11 @@ class PortfolioManager:
             user_text = state["messages"][-1].get("content", "")
 
         # Get current parameters from state (passed from portfolio agent)
-        current_lambda = state.get("current_lambda", 1.0)
-        current_cash_reserve = state.get("current_cash_reserve", 0.05)
+        current_lambda = state.get("current_lambda", DEFAULT_LAMBDA)
+        current_cash_reserve = state.get("current_cash_reserve", DEFAULT_CASH_RESERVE)
+        
+        # Get dynamic constraints from config
+        min_cash, max_cash = get_cash_reserve_constraints()
 
         system = (
             "Plan tool calls for portfolio optimization based on user input.\n\n"
@@ -252,11 +255,12 @@ class PortfolioManager:
             "• mean_variance_optimizer(...) - Run portfolio optimization\n\n"
             "RULES:\n"
             "• Output JSON array: [{\"tool\":\"name\", \"args\":{...}}]\n"
-            "• Parse terse inputs: 'lambda 1', 'cash 0.05', 'run', 'proceed'\n"
+            f"• Parse terse inputs: 'lambda 1', 'cash {max_cash:.2f}', 'run', 'proceed'\n"
             "• Multiple params → multiple set_portfolio_param calls\n"
             "• Include optimization as final call if user wants to run\n"
             "• Ambiguous/chat → return []\n"
-            "• Use current params for optimization if not specified"
+            "• Use current params for optimization if not specified\n"
+            f"• Cash reserve must be between {min_cash:.2f} and {max_cash:.2f}"
         )
 
         # Few-shot examples to reduce ambiguity
@@ -269,9 +273,9 @@ class PortfolioManager:
                 ]
             },
             {
-                "user": "cash 0.05, lambda 8",
+                "user": f"cash {max_cash:.2f}, lambda 8",
                 "calls": [
-                    {"tool": "set_portfolio_param", "args": {"param": "cash_reserve", "value": 0.05}},
+                    {"tool": "set_portfolio_param", "args": {"param": "cash_reserve", "value": max_cash}},
                     {"tool": "set_portfolio_param", "args": {"param": "lambda", "value": 8}}
                 ]
             },

@@ -328,6 +328,7 @@ I can choose funds using different criteria. Please select one:
             "role": "ai",
             "content": "You can say 'review' to see your current portfolio, mention an asset class name to edit it (e.g., 'large cap growth'), 'analyze [ticker]' to get detailed fund analysis, or 'proceed' to move to trading."
         })
+        state["awaiting_input"] = True
         return state
     
     def _handle_edit_mode(self, state: Dict[str, Any]) -> Dict[str, Any]:
@@ -395,6 +396,7 @@ I can choose funds using different criteria. Please select one:
             "content": f"Here are the available funds for {asset_class}{current_text}:\n\n{options_text}\n\nPlease select a number (1-{len(available_funds)}):"
         })
         
+        state["awaiting_input"] = True
         return state
     
     def _extract_asset_class(self, user_input: str) -> Optional[str]:
@@ -507,6 +509,9 @@ I can choose funds using different criteria. Please select one:
             "role": "ai",
             "content": portfolio_message
         })
+        
+        # Set awaiting_input to stay in investment agent
+        state["awaiting_input"] = True
 
     
     def _select_best_fund_for_asset_class(self, asset_class: str, criteria: str = "balanced") -> Dict[str, Any]:
@@ -646,3 +651,18 @@ I can choose funds using different criteria. Please select one:
             
         except Exception as e:
             return f"❌ Error analyzing {ticker}: {str(e)}"
+    
+    def router(self, state: Dict[str, Any]) -> str:
+        """
+        Route based on investment agent state.
+        """
+        # If awaiting input, go to end to wait for user input
+        if state.get("awaiting_input", False):
+            return "__end__"
+        
+        # If investment exists and user wants to proceed, go to reviewer
+        if state.get("investment") and state.get("done", False):
+            return "reviewer_agent"
+        
+        # If investment doesn't exist yet, go to end to wait for user input
+        return "__end__"

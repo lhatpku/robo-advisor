@@ -158,7 +158,6 @@ class RiskAgent:
         state["messages"].append({"role": "ai", "content": msg})
 
         state["awaiting_input"] = False
-        state["intent_to_risk"] = False     
         state["done"] = True                   
         return state
     
@@ -241,4 +240,20 @@ class RiskAgent:
         state["messages"].append({"role": "ai", "content": msg})
         state["awaiting_input"] = True
         return state
+
+    def router(self, state: AgentState) -> str:
+        """
+        Router function that determines the next step based on risk agent completion.
+        Only routes to reviewer when completely done with all questions.
+        """
+        # Only route to reviewer when completely done
+        if state.get("done", False):
+            return "reviewer_agent"
+        
+        # When waiting for input, don't route anywhere - just wait
+        if state.get("awaiting_input", False):
+            return "__end__"
+        
+        # If not done and not awaiting input, go to end to wait for user input
+        return "__end__"
 

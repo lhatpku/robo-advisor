@@ -49,6 +49,12 @@ class TradingAgent:
             state["awaiting_input"] = True
             return state
         
+        # Check if trading requests already exist - if so, just mark as done
+        if state.get("trading_requests") and isinstance(state.get("trading_requests"), dict) and "trading_requests" in state.get("trading_requests", {}):
+            state["done"] = True
+            state["awaiting_input"] = False
+            return state
+        
         # Always show demo scenarios first (unless already selected)
         if not self._demo_scenario and not self._selecting_scenario:
             # Show demo scenario selection
@@ -68,7 +74,7 @@ class TradingAgent:
         last_user = state["messages"][-1].get("content", "").lower().strip()
         if last_user in ["yes", "proceed", "generate", "create"] and self._demo_scenario:
             # User confirmed scenario selection, proceed with trading
-            state["intent_to_trading"] = True
+            pass
         elif self._demo_scenario and not state.get("intent_to_trading", False):
             # User has selected scenario but hasn't confirmed yet
             state["messages"].append({
@@ -77,13 +83,25 @@ class TradingAgent:
             })
             state["awaiting_input"] = True
             return state
+        elif not self._demo_scenario:
+            # No scenario selected yet, show scenarios
+            state["messages"].append({
+                "role": "ai",
+                "content": "Please select a demo scenario (1-6) to proceed with trading requests."
+            })
+            state["awaiting_input"] = True
+            return state
+        else:
+            # No valid scenario or confirmation, wait for input
+            state["awaiting_input"] = True
+            return state
         
         # Generate trading requests
         try:
             trading_result = self._generate_trading_requests(state, investment)
             state["trading_requests"] = trading_result
-            state["intent_to_trading"] = False
             state["awaiting_input"] = True
+            state["done"] = True
             
             # Display trading requests
             state["messages"].append({
@@ -376,7 +394,6 @@ class TradingAgent:
         user_input = user_input.lower().strip()
         
         if user_input in ["yes", "proceed", "generate", "create"]:
-            state["intent_to_trading"] = True
             return self.step(state)
         
         elif user_input == "execute":
@@ -558,3 +575,18 @@ class TradingAgent:
         state["awaiting_input"] = True
         
         return state
+
+    def router(self, state: Dict[str, Any]) -> str:
+        """
+        Route based on trading agent state.
+        """
+        # If trading requests exist and done, go to reviewer (priority over awaiting_input)
+        if state.get("trading_requests") and state.get("done", False):
+            return "reviewer_agent"
+        
+        # If awaiting input, go to end to wait for user input
+        if state.get("awaiting_input", False):
+            return "__end__"
+        
+        # If trading requests don't exist yet, go to end to wait for user input
+        return "__end__"

@@ -11,6 +11,7 @@ from portfolio.portfolio_agent import PortfolioAgent
 from investment.investment_agent import InvestmentAgent
 from trading.trading_agent import TradingAgent
 from entry_agent import EntryAgent
+from reviewer_agent import ReviewerAgent
 from state import AgentState
 
 # ---------------------------
@@ -22,12 +23,14 @@ def build_graph(llm: ChatOpenAI):
     
     # Create agent instances
     entry_agent = EntryAgent(llm)
+    reviewer_agent = ReviewerAgent(llm)
     risk_agent = RiskAgent(llm)
     portfolio_agent = PortfolioAgent(llm)
     investment_agent = InvestmentAgent(llm)
     trading_agent = TradingAgent(llm)
 
     builder.add_node("robo_entry", entry_agent.step)
+    builder.add_node("reviewer_agent", reviewer_agent.step)
     builder.add_node("risk_agent", risk_agent.step)
     builder.add_node("portfolio_agent", portfolio_agent.step)
     builder.add_node("investment_agent", investment_agent.step)
@@ -35,20 +38,45 @@ def build_graph(llm: ChatOpenAI):
 
     builder.set_entry_point("robo_entry")
 
-    # Route to risk, portfolio, investment, or trading.
+    # Route from entry agent to specific agents only
     builder.add_conditional_edges("robo_entry", entry_agent.router, {
         "risk_agent": "risk_agent",
         "portfolio_agent": "portfolio_agent",
         "investment_agent": "investment_agent",
         "trading_agent": "trading_agent",
-        "END": END
+        "__end__": END
     })
 
-    # All agents loop back to entry agent when done.
-    builder.add_edge("risk_agent", "robo_entry")
-    builder.add_edge("portfolio_agent", "robo_entry")
-    builder.add_edge("investment_agent", "robo_entry")
-    builder.add_edge("trading_agent", "robo_entry")
+    # Route from reviewer agent back to appropriate agents or end
+    builder.add_conditional_edges("reviewer_agent", reviewer_agent.router, {
+        "risk_agent": "risk_agent",
+        "portfolio_agent": "portfolio_agent",
+        "investment_agent": "investment_agent",
+        "trading_agent": "trading_agent",
+        "robo_entry": "robo_entry",
+        "__end__": END
+    })
+
+    # All agents route to reviewer when done or end when waiting
+    builder.add_conditional_edges("risk_agent", risk_agent.router, {
+        "reviewer_agent": "reviewer_agent",
+        "__end__": END
+    })
+    
+    builder.add_conditional_edges("portfolio_agent", portfolio_agent.router, {
+        "reviewer_agent": "reviewer_agent",
+        "__end__": END
+    })
+    
+    builder.add_conditional_edges("investment_agent", investment_agent.router, {
+        "reviewer_agent": "reviewer_agent",
+        "__end__": END
+    })
+    
+    builder.add_conditional_edges("trading_agent", trading_agent.router, {
+        "reviewer_agent": "reviewer_agent",
+        "__end__": END
+    })
 
     # Keep it simple: no checkpointer required.
     return builder.compile()
@@ -81,7 +109,11 @@ if __name__ == "__main__":
         "intent_to_trading": False,
         "entry_greeted": False,
         "portfolio": None,
-        "investment": None
+        "investment": None,
+        "trading_requests": None,
+        "ready_to_proceed": None,
+        "all_phases_complete": False,
+        "next_phase": None
     }
 
     # --- INITIAL TICK to produce greeting ---

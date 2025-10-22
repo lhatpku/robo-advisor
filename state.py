@@ -15,3 +15,6 @@ class AgentState(TypedDict, total=False):
     portfolio: Optional[Dict[str, Any]]   
     investment: Optional[Dict[str, Any]] 
     trading_requests: Optional[Dict[str, Any]]  # Trading requests and analysis
+    ready_to_proceed: Optional[Dict[str, bool]]  # Which phases are ready to proceed
+    all_phases_complete: bool            # All phases completed
+    next_phase: Optional[str]            # Next phase to go to (set by reviewer)
