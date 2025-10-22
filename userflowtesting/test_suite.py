@@ -19,6 +19,9 @@ from test_simple_completion import test_simple_completion
 from test_start_over import test_start_over_functionality
 from test_reviewer_final_completion import test_reviewer_final_completion
 from test_portfolio_to_investment import test_portfolio_to_investment
+from test_portfolio_cash_setting import test_portfolio_cash_setting
+from test_portfolio_lambda_setting import test_portfolio_lambda_setting
+from test_portfolio_review import test_portfolio_review
 
 class UserFlowTestSuite:
     """Test suite for validating user flows in the robo-advisor application."""
@@ -44,6 +47,15 @@ class UserFlowTestSuite:
         
         # Test 5: Portfolio to Investment transition
         self.run_test("Portfolio to Investment Transition", test_portfolio_to_investment)
+        
+        # Test 6: Portfolio cash setting functionality
+        self.run_test("Portfolio Cash Setting", test_portfolio_cash_setting)
+        
+        # Test 7: Portfolio lambda setting functionality
+        self.run_test("Portfolio Lambda Setting", test_portfolio_lambda_setting)
+        
+        # Test 8: Portfolio review functionality
+        self.run_test("Portfolio Review", test_portfolio_review)
         
         # Print summary
         self.print_test_summary()
