@@ -120,13 +120,14 @@ class EntryMessages:
     
     # Stage summaries dictionary
     STAGE_SUMMARIES = {
-        "risk": "**Risk Assessment Complete** ✅\n\nYour risk profile has been determined based on your investment goals and risk tolerance. This will guide the portfolio construction in the next phase.",
         
-        "portfolio": "**Portfolio Construction Complete** ✅\n\nYour optimized portfolio allocation has been created using mean-variance optimization. The next phase will select specific funds and ETFs for each asset class.",
+        "risk": "**Start Risk Assessment** ✅\n\nYour risk profile will be determined based on your investment goals and risk tolerance.",
         
-        "investment": "**Fund Selection Complete** ✅\n\nYour investment portfolio is ready with specific funds and ETFs selected for each asset class. The final phase will generate trading requests to implement this portfolio.",
+        "portfolio": "**Start Portfolio Construction** ✅\n\nYour optimized portfolio allocation will be created using mean-variance optimization.",
         
-        "trading": "**Trading Implementation Complete** ✅\n\nYour trading plan is ready with specific buy/sell orders generated. Your complete investment plan is now ready for execution!"
+        "investment": "**Start Fund Analysis and Selection ** ✅\n\nYour investment portfolio will be constructed by selecting funds for each asset class.",
+        
+        "trading": "**Start Trading Execution** ✅\n\nYour trading execution will be generated with specific buy/sell orders."
     }
     
     @staticmethod
@@ -137,6 +138,6 @@ class EntryMessages:
         return f"""{summary}
 
 **What would you like to do next?**
-• **Proceed** to the next phase
+• **Proceed** to the phase
 • **Learn more** about any phase by asking me questions
 """
