@@ -1,9 +1,9 @@
 # 🧠 Robo Advisor with Risk, Portfolio, Investment & Trading Agents
 
-This repository implements a **complete 4-step** intelligent, modular robo-advising platform built on
+This repository implements a **complete 5-step** intelligent, modular robo-advising platform built on
 LLM-powered agents orchestrated with **LangGraph**.  
 The system integrates conversational intent detection, questionnaire-based risk profiling,
-portfolio optimization, fund selection, and trading execution workflows.
+portfolio optimization, fund selection, trading execution workflows, and a modern **Streamlit web interface**.
 
 ---
 
@@ -15,13 +15,14 @@ User
        ├─ natural conversation
        ├─ detects user intent (risk, portfolio, investment, trading)
        ├─ directs to:
-       │    ├─ Risk Agent  → questionnaire-based guidance
+       │    ├─ Risk Agent  → equity setting OR questionnaire-based guidance
        │    ├─ Portfolio Agent → mean-variance optimizer
        │    ├─ Investment Agent → fund selection & analysis
        │    └─ Trading Agent → executable trading requests
        ↓
  ├──> Risk Agent (ChatOpenAI + Tool)
- │      ├─ runs 7 risk-profiling questions
+ │      ├─ handles direct equity setting commands
+ │      ├─ runs 7 risk-profiling questions (when guidance requested)
  │      ├─ produces {"equity": x, "bond": 1-x}
  │      └─ writes recommendation to shared state
  │
@@ -39,12 +40,18 @@ User
  │      ├─ allows user review and editing of selections
  │      └─ outputs **investment portfolio with tickers**
  │
- └──> Trading Agent (ChatOpenAI + Rebalancing Engine)
-        ├─ generates executable trading requests
-        ├─ uses demo scenarios for realistic testing
-        ├─ implements tax-aware rebalancing optimization
-        ├─ outputs **simple trading table** (ticker, action, price, shares)
-        └─ provides execution summary
+ ├──> Trading Agent (ChatOpenAI + Rebalancing Engine)
+ │      ├─ generates executable trading requests
+ │      ├─ uses demo scenarios for realistic testing
+ │      ├─ implements tax-aware rebalancing optimization
+ │      ├─ outputs **simple trading table** (ticker, action, price, shares)
+ │      └─ provides execution summary
+ │
+ └──> Reviewer Agent (ChatOpenAI)
+        ├─ reviews completed phases and user progress
+        ├─ provides final recommendations and next steps
+        ├─ orchestrates flow between agents
+        └─ handles completion and routing decisions
 ```
 
 ---
@@ -65,9 +72,10 @@ User
 | | `trading/rebalance.py` | Tax-aware rebalancing optimization |
 | | `trading/config.py` | Configuration and assumptions |
 | | `trading/demo_scenarios.json` | Demo trading scenarios |
+| **Reviewer** | `reviewer_agent.py` | Final review, recommendations, and flow orchestration |
+| **UI** | `streamlit_app.py` | Modern web interface with real-time visualization |
 | **Core** | `state.py` | Shared TypedDict state |
 | | `app.py` | Main LangGraph orchestration |
-| | `gradio_app.py` | Web interface |
 
 ---
 
@@ -75,8 +83,11 @@ User
 
 ### 1. Environment Setup
 ```bash
+# Create conda environment
 conda create -n roboadvisor python=3.11
 conda activate roboadvisor
+
+# Install dependencies
 pip install -r requirements.txt
 ```
 
@@ -88,14 +99,49 @@ OPENAI_MODEL=gpt-4o-mini
 OPENAI_TEMPERATURE=0.2
 ```
 
-### 3. Run
-```bash
-# Command line interface
-python app.py
+### 3. Run the Application
 
-# Web interface
+#### Option A: Streamlit Web Interface (Recommended)
+```bash
+streamlit run streamlit_app.py
+```
+The app will open in your browser at `http://localhost:8501`
+
+#### Option B: Command Line Interface
+```bash
+python app.py
+```
+
+#### Option C: Gradio Interface (Legacy)
+```bash
 python gradio_app.py
 ```
+
+---
+
+## 🎨 Streamlit Web Interface Features
+
+### **Interactive Chat Interface**
+- Real-time back-and-forth communication with the AI robo-advisor
+- Clean message input with automatic form submission
+- Displays latest AI response prominently
+
+### **Real-time Data Visualization**
+- **Risk Assessment**: Bar charts for equity/bond allocation + collapsible questionnaire answers
+- **Portfolio**: Interactive pie charts + detailed allocation tables with weights
+- **Investment**: Comprehensive fund selection table with tickers, weights, and selection criteria
+- **Trading**: Clean table format for trading requests with execution details
+
+### **Process Status Tracking**
+- Visual progress indicators for each of the 4 main phases
+- Color-coded status indicators (complete/pending/not started)
+- Progress bar in sidebar showing completion percentage
+
+### **Advanced UI Features**
+- **Collapsible Message History**: Expandable conversation log (shows last 15 messages)
+- **Reset Functionality**: One-click reset button to clear state and restart
+- **Reactive Design**: Sections only appear when relevant data exists
+- **Modern Styling**: Professional interface with custom CSS and responsive layout
 
 ---
 
@@ -103,22 +149,25 @@ python gradio_app.py
 
 ### Entry Agent
 - Initializes with a greeting and clear user choices
-- Understands commands such as:  
-  *"set equity 0.6"*, *"use guidance"*, *"reset equity"*, *"proceed to invest"*, *"generate trades"*
+- Routes users to appropriate agents based on their intent
 - Routes dynamically:
-  - → **Risk Agent** if guidance requested
+  - → **Risk Agent** for any risk-related requests (equity setting or guidance)
   - → **Portfolio Agent** if ready to invest
   - → **Investment Agent** after portfolio optimization
   - → **Trading Agent** after fund selection
 - Always preserves existing state when moving forward
 
 ### Risk Agent
-- Conducts a 7-question risk-profiling interview
+- **Handles all risk-related functionality** including:
+  - Direct equity setting commands: *"set equity 0.6"*, *"set equity to 60%"*
+  - Risk guidance through 7-question questionnaire
+  - Equity reset commands: *"reset equity"*, *"clear equity"*
+- Conducts a comprehensive 7-question risk-profiling interview when guidance requested
 - Supports "why" clarifications per question
 - On completion:
   - Writes equity/bond mix into `state["risk"]`
-  - Clears `intent_to_risk` so routing returns to entry
-  - User can then review or proceed to portfolio
+  - Sets `done=True` and `awaiting_input=False`
+  - Routes to **Reviewer Agent** for next steps
 
 ### Portfolio Agent ✅
 - Reads mean/covariance data from `portfolio/config/asset_stats.xlsx`
@@ -127,7 +176,7 @@ python gradio_app.py
   - Bond sleeves (short/mid/long-term treasuries, corporates, TIPS, cash)
 - Lets user adjust λ (5–20 typical) and cash reserve (3–6%)
 - Outputs **asset-class portfolio dictionary**
-- Routes to Investment Agent for fund selection
+- Routes to **Reviewer Agent** for next steps
 
 ### Investment Agent ✅
 - Presents 4 fund selection criteria:
@@ -141,6 +190,7 @@ python gradio_app.py
 - Allows user review and editing of fund selections
 - Excludes cash from fund analysis (uses "sweep_cash")
 - Outputs **investment portfolio with tickers**
+- Routes to **Reviewer Agent** when user says "proceed"
 
 ### Trading Agent ✅
 - Generates executable trading requests from investment portfolio
@@ -161,6 +211,13 @@ python gradio_app.py
   | VTV    | SELL   | $180.25    | 50     |
   ```
 
+### Reviewer Agent ✅
+- **Central orchestrator** that manages flow between all agents
+- Reviews completed phases and provides recommendations
+- Handles routing decisions based on user progress
+- Provides final completion options and next steps
+- Manages the overall conversation flow and state transitions
+
 ---
 
 ## 🧭 Complete User Flow
@@ -174,33 +231,51 @@ python gradio_app.py
          │ greet + choices
          ▼
  ┌───────────────────────────────┐
- │ "set equity" → Review prompt  │
+ │ "set equity 0.6" → Risk Agent │
  │ "use guidance" → Risk Agent   │
  │ "proceed" → Portfolio Agent  │
  └───────────────────────────────┘
                ▼
         Risk Agent
-         │ 7 questions
-         │ computes 15% / 85%
+         │ handles equity setting OR
+         │ 7-question questionnaire
+         │ computes 60% / 40%
+         │ sets done=True
          ▼
-   Returns to Entry Agent
-         │ review or proceed
+     Reviewer Agent
+         │ reviews progress
+         │ routes to Portfolio
          ▼
      Portfolio Agent
          │ asks λ & cash reserve
          │ runs mean-variance optimization
          │ outputs asset-class portfolio
+         │ sets done=True
+         ▼
+     Reviewer Agent
+         │ reviews progress
+         │ routes to Investment
          ▼
      Investment Agent
          │ presents fund selection criteria
          │ analyzes funds via Yahoo Finance
          │ allows review/edit of selections
          │ outputs investment portfolio
+         │ sets done=True when user says "proceed"
+         ▼
+     Reviewer Agent
+         │ reviews progress
+         │ routes to Trading
          ▼
      Trading Agent
          │ shows demo scenarios
          │ generates trading requests
          │ outputs simple trading table
+         │ sets done=True
+         ▼
+     Reviewer Agent
+         │ final review and completion
+         │ provides next steps
          ▼
       (Ready for execution)
 ```
@@ -209,11 +284,19 @@ python gradio_app.py
 
 ## 🧪 Example Complete Flow
 
+### Option A: Direct Equity Setting
+> **User:** set equity 0.6  
+> **AI:** Perfect! I've set your allocation to **60% equity / 40% bonds**...  
+> *(Risk Agent directly sets equity allocation)*  
+> **User:** proceed  
+> *(Reviewer Agent routes to Portfolio Agent)*
+
+### Option B: Risk Guidance
 > **User:** use guidance  
 > **AI:** I'll help you determine your optimal asset allocation through a risk assessment...  
-> *(Risk Agent runs full 7-question flow → recommends 15% equity / 85% bonds)*  
+> *(Risk Agent runs full 7-question flow → recommends 60% equity / 40% bonds)*  
 > **User:** proceed  
-> *(Portfolio Agent engages)*  
+> *(Reviewer Agent routes to Portfolio Agent)*  
 > **AI:** Defaults λ = 1.0, cash = 0.05 — say "set lambda to 1 and cash to 0.03 run"  
 > **User:** set lambda as 1 and cash as 0.03 run  
 > *(Optimizer builds portfolio)*  
@@ -230,21 +313,21 @@ python gradio_app.py
 | **Total** | **100%** |
 
 > **User:** proceed  
-> *(Investment Agent engages)*  
+> *(Reviewer Agent routes to Investment Agent)*  
 > **AI:** Choose your fund selection criteria: Balanced, Low Cost, High Performance, or Low Risk  
 > **User:** balanced  
 > *(Fund analysis and selection)*  
 
-| Asset Class | Weight | Ticker | Analysis |
-|-------------|--------|--------|----------|
-| Mid-term Treasury | 29.72% | VGIT | Sharpe: 0.28 |
-| TIPS | 29.72% | VTEB | Sharpe: 0.15 |
-| Corporate Bond | 22.56% | VCIT | Sharpe: 0.22 |
-| Emerging Market Equity | 11.00% | VWO | Sharpe: 0.18 |
+| Asset Class | Weight | Ticker | Selection Reason |
+|-------------|--------|--------|------------------|
+| Mid-term Treasury | 29.72% | VGIT | Low cost index fund |
+| TIPS | 29.72% | VTEB | Diversified bond exposure |
+| Corporate Bond | 22.56% | VCIT | Best Sharpe ratio |
+| Emerging Market Equity | 11.00% | VWO | Emerging market exposure |
 | Cash | 3.00% | sweep_cash | Sweep Account |
 
-> **User:** done  
-> *(Trading Agent engages)*  
+> **User:** proceed  
+> *(Reviewer Agent routes to Trading Agent)*  
 > **AI:** Welcome to the Trading Module! Select a demo scenario (1-6)...  
 > **User:** 1  
 > *(Trading requests generated)*  
@@ -270,7 +353,9 @@ python gradio_app.py
 | ✅ **Step 2 – Portfolio Agent** | **Complete** | Asset-class optimizer with mean-variance optimization |
 | ✅ **Step 3 – Investment Agent** | **Complete** | Fund selection with Yahoo Finance analysis |
 | ✅ **Step 4 – Trading Agent** | **Complete** | Tax-aware rebalancing with demo scenarios |
-| 🚀 **Step 5 – Production Ready** | **Vision** | Real market data, custodian integration, monitoring |
+| ✅ **Step 5 – Reviewer Agent** | **Complete** | Central orchestrator and flow management |
+| ✅ **Step 6 – Streamlit UI** | **Complete** | Modern web interface with real-time visualization |
+| 🚀 **Step 7 – Production Ready** | **Vision** | Real market data, custodian integration, monitoring |
 
 ---
 
@@ -285,6 +370,7 @@ python gradio_app.py
 - **Clean AgentState** with only shared fields
 - **Internal state** for agent-specific data (demo scenarios, preferences)
 - **Type-safe** state management with TypedDict
+- **Status tracking** for each agent phase (done, awaiting_input)
 
 ### Fund Analysis
 - **Yahoo Finance integration** for real-time fund data
@@ -300,10 +386,18 @@ python gradio_app.py
 - **Two-stage integerization** for whole-share constraints
 - **Demo scenarios** for realistic testing
 
+### Web Interface
+- **Real-time visualization** with Plotly charts and tables
+- **Reactive design** that shows/hides sections based on data availability
+- **Message history** with collapsible conversation log
+- **Status tracking** with visual progress indicators
+- **Reset functionality** for easy testing and restart
+
 ### Error Handling
 - **Comprehensive error handling** with user-friendly messages
 - **Debug information** for development (removed from production output)
 - **Graceful fallbacks** for missing data or API failures
+- **Unicode encoding fixes** for cross-platform compatibility
 
 ---
 
@@ -333,6 +427,7 @@ python gradio_app.py
 - **Type safety**: Full typing with Pydantic models and TypedDict
 - **Testing**: Demo scenarios provide realistic testing without real data
 - **Documentation**: Comprehensive docstrings and configuration notes
+- **UI/UX**: Modern Streamlit interface with real-time updates and visualization
 
 ---
 
@@ -373,4 +468,22 @@ python gradio_app.py
 
 ---
 
-*This robo-advisor represents a complete end-to-end wealth management solution, from risk assessment to trade execution, built with modern AI and optimization techniques.*
+## 🧪 Testing
+
+The repository includes comprehensive user flow testing:
+
+```bash
+# Run all user flow tests
+python userflowtesting/test_suite.py
+
+# Run individual tests
+python userflowtesting/test_comprehensive_risk_flow.py
+python userflowtesting/test_portfolio_to_investment.py
+python userflowtesting/test_simple_completion.py
+```
+
+**Note**: Tests may show Unicode encoding warnings on Windows - this is a display issue and doesn't affect functionality.
+
+---
+
+*This robo-advisor represents a complete end-to-end wealth management solution, from risk assessment to trade execution, built with modern AI, optimization techniques, and a beautiful web interface.*

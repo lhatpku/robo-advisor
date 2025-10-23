@@ -327,25 +327,15 @@ I can choose funds using different criteria. Please select one:
         if state.get("portfolio") and state.get("investment") and state.get("messages") and state["messages"][-1].get("role") == "user":
             last_user = state["messages"][-1].get("content", "").lower()
             if last_user.strip() in ["done", "ok", "okay", "good", "fine", "next", "proceed", "continue", "ready", "complete", "finished"]:
-                state["intent_to_investment"] = False
-                state["intent_to_trading"] = True  # Route to trading agent
+                # Mark investment as done and stop awaiting input
+                self._set_status(state, "investment", done=True, awaiting_input=False)
+                
                 state["messages"].append({
                     "role": "ai",
                     "content": "Perfect! Your investment portfolio is ready. Proceeding to generate trading requests..."
                 })
                 return state
 
-
-        # if any(word in last_user for word in ["done", "ok", "okay", "good", "fine", "next", "proceed", "continue", "ready", "complete", "finished"]):
-        #     state["messages"].append({
-        #         "role": "ai",
-        #         "content": "Perfect! Your investment portfolio is ready. You can now proceed to generate trading requests if you'd like to see how to execute this portfolio."
-        #     })
-        #     state["intent_to_investment"] = False
-        #     state["intent_to_trading"] = True  # Route to trading agent
-        #     state["done"] = True
-        #     return state
-        
         # Check if user mentioned a specific asset class
         asset_class = self._extract_asset_class(last_user)
         if asset_class:

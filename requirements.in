@@ -7,7 +7,7 @@ langchain-openai>=0.1
 python-dotenv>=1.0
 
 # Data + Excel
-numpy>=1.26
+numpy>=1.21.6,<1.28.0
 pandas>=2.2
 openpyxl>=3.1
 
@@ -24,3 +24,7 @@ typing-extensions>=4.9
 
 # (Nice to have; langgraph already pulls it, but keeping explicit helps clarity)
 networkx>=3.2
+
+# Streamlit UI
+streamlit>=1.28.0
+plotly>=5.17.0
