@@ -18,7 +18,7 @@ def test_simple_completion():
     """
     Test the final completion flow with a simple scenario
     """
-    print("🧪 Testing Simple Final Completion Flow")
+    print("Testing Simple Final Completion Flow")
     print("=" * 50)
     
     # Build the graph
@@ -44,7 +44,7 @@ def test_simple_completion():
         "entry_greeted": True,
         "intent_to_portfolio": False,
         "intent_to_investment": False,
-        "intent_to_trading": True,
+        "intent_to_trading": False,
         "portfolio": {"large cap growth": 0.1, "bonds": 0.4, "cash": 0.05},
         "investment": {"fund1": {"ticker": "SPY", "weight": 0.1}},
         "trading_requests": {
@@ -56,6 +56,12 @@ def test_simple_completion():
         "ready_to_proceed": None,
         "all_phases_complete": False,
         "next_phase": None,
+        "summary_shown": {
+            "risk": True,
+            "portfolio": True,
+            "investment": True,
+            "trading": True
+        },
         "status_tracking": {
             "risk": {"done": True, "awaiting_input": False},
             "portfolio": {"done": True, "awaiting_input": False},
@@ -65,7 +71,7 @@ def test_simple_completion():
         }
     }
     
-    print("📊 Initial state:")
+    print("Initial state:")
     print(f"   Risk: {state.get('risk')}")
     print(f"   Portfolio: {state.get('portfolio')}")
     print(f"   Investment: {state.get('investment')}")
@@ -76,21 +82,21 @@ def test_simple_completion():
     print("\n--- Testing Graph Invoke ---")
     try:
         state = graph.invoke(state)
-        print(f"✅ After graph invoke:")
+        print(f"After graph invoke:")
         print(f"   All phases complete: {state.get('all_phases_complete')}")
         print(f"   Status tracking: {state.get('status_tracking')}")
         
         if state["messages"]:
             last_message = state["messages"][-1]
             if last_message["role"] == "ai":
-                print(f"🤖 Last AI message: {last_message['content'][:300]}...")
+                print(f"Last AI message: {last_message['content'][:300]}...")
         
     except Exception as e:
-        print(f"❌ Error: {e}")
+        print(f"Error: {e}")
         return False
     
     print("\n" + "=" * 50)
-    print("✅ Simple completion test completed!")
+    print("Simple completion test completed!")
     return True
 
 

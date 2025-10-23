@@ -32,11 +32,8 @@ def test_comprehensive_risk_flow():
     
     state: AgentState = {
         "messages": [],
-        "q_idx": 0,
         "answers": {},
-        "done": False,
         "risk": None,
-        "awaiting_input": False,
         "intent_to_risk": False,
         "intent_to_portfolio": False,
         "intent_to_investment": False,
@@ -47,7 +44,20 @@ def test_comprehensive_risk_flow():
         "trading_requests": None,
         "ready_to_proceed": None,
         "all_phases_complete": False,
-        "next_phase": None
+        "next_phase": "risk",
+        "summary_shown": {
+            "risk": False,
+            "portfolio": False,
+            "investment": False,
+            "trading": False
+        },
+        "status_tracking": {
+            "risk": {"done": False, "awaiting_input": False},
+            "portfolio": {"done": False, "awaiting_input": False},
+            "investment": {"done": False, "awaiting_input": False},
+            "trading": {"done": False, "awaiting_input": False},
+            "reviewer": {"done": False, "awaiting_input": False}
+        }
     }
     
     try:
@@ -55,10 +65,11 @@ def test_comprehensive_risk_flow():
         state = graph.invoke(state)
         greeting = state["messages"][-1]["content"]
         print(f"1. Greeting: {greeting[:50]}...")
-        assert "robo advisor" in greeting.lower()
+        # The new flow shows phase summaries, so we expect risk assessment summary
+        assert "risk assessment" in greeting.lower() or "risk profile" in greeting.lower()
         
-        # Step 2: User says "yes" -> should show mode selection
-        state["messages"].append({"role": "user", "content": "yes"})
+        # Step 2: User says "proceed" -> should show mode selection
+        state["messages"].append({"role": "user", "content": "proceed"})
         state = graph.invoke(state)
         mode_selection = state["messages"][-1]["content"]
         print(f"2. Mode selection: {mode_selection[:50]}...")
@@ -150,8 +161,8 @@ def test_comprehensive_risk_flow():
         state = graph.invoke(state)
         portfolio_start = state["messages"][-1]["content"]
         print(f"13. Portfolio start: {portfolio_start[:50]}...")
-        assert "asset-class portfolio" in portfolio_start.lower()
-        assert "mean-variance optimization" in portfolio_start.lower()
+        # The new flow shows portfolio summary, then portfolio agent message
+        assert "portfolio construction" in portfolio_start.lower() or "asset-class portfolio" in portfolio_start.lower()
         
         print("✅ Comprehensive risk assessment flow completed successfully!")
         return True

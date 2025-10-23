@@ -47,7 +47,13 @@ def test_portfolio_review():
         "trading_requests": None,
         "ready_to_proceed": None,
         "all_phases_complete": False,
-        "next_phase": None,
+        "next_phase": "portfolio",
+        "summary_shown": {
+            "risk": True,
+            "portfolio": False,
+            "investment": False,
+            "trading": False
+        },
         "status_tracking": {
             "risk": {"done": True, "awaiting_input": False},
             "portfolio": {"done": False, "awaiting_input": True},

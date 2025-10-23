@@ -11,16 +11,7 @@ from .risk_manager import RiskManager, MCQuestion, MCAnswer
 from state import AgentState
 from prompts.risk_prompts import (
     RISK_INTENT_SYSTEM_PROMPT,
-    MODE_SELECTION_MESSAGE,
-    get_direct_equity_message,
-    get_review_edit_message,
-    get_questionnaire_question_template,
-    get_questionnaire_finalization_message,
-    UNKNOWN_INTENT_MESSAGE,
-    PROCEED_WITHOUT_RISK_MESSAGE,
-    INVALID_EQUITY_MESSAGE,
-    NO_RISK_ALLOCATION_MESSAGE,
-    UNKNOWN_QUESTIONNAIRE_RESPONSE_TEMPLATE
+    RiskMessages
 )
 
 
@@ -129,8 +120,7 @@ Classify the intent and extract equity value if applicable."""
     
     def _ask_mode_selection(self, state: AgentState) -> AgentState:
         """Ask user to choose between direct equity or guidance."""
-        msg = MODE_SELECTION_MESSAGE
-        state["messages"].append({"role": "ai", "content": msg})
+        state["messages"].append({"role": "ai", "content": RiskMessages. mode_selection()})
         self._set_status(state, "risk", awaiting_input=True)
         return state
     
@@ -138,7 +128,7 @@ Classify the intent and extract equity value if applicable."""
         """Handle direct equity input."""
         # Validate equity range
         if not (0.05 <= equity_value <= 0.95):
-            msg = INVALID_EQUITY_MESSAGE
+            msg = RiskMessages.invalid_equity()
             state["messages"].append({"role": "ai", "content": msg})
             self._set_status(state, "risk", awaiting_input=True)
             return state
@@ -147,22 +137,21 @@ Classify the intent and extract equity value if applicable."""
         state["risk"] = {"equity": equity_value, "bond": 1.0 - equity_value}
         
         # Show confirmation and ask to proceed or review
-        msg = get_direct_equity_message(equity_value)
+        msg = RiskMessages.direct_equity_confirmation(equity_value)
         state["messages"].append({"role": "ai", "content": msg})
-        self._set_status(state, "risk", done=True)
         self._set_status(state, "risk", awaiting_input=True)
         return state
     
     def _handle_review_edit(self, state: AgentState) -> AgentState:
         """Handle review/edit commands."""
         if not state.get("risk"):
-            msg = NO_RISK_ALLOCATION_MESSAGE
+            msg = RiskMessages.no_risk_allocation()
             state["messages"].append({"role": "ai", "content": msg})
             self._set_status(state, "risk", awaiting_input=True)
             return state
         
         current_equity = state["risk"]["equity"]
-        msg = get_review_edit_message(current_equity)
+        msg = RiskMessages.review_edit_message(current_equity)
         state["messages"].append({"role": "ai", "content": msg})
         self._set_status(state, "risk", awaiting_input=True)
         return state
@@ -174,7 +163,7 @@ Classify the intent and extract equity value if applicable."""
         self._current_question_idx = 0
         state["answers"] = {}
         self._set_status(state, "risk", done=False)
-        self._set_status(state, "risk", awaiting_input=False)
+        self._set_status(state, "risk", awaiting_input=True)
         
         # Clear existing risk allocation to start fresh
         state["risk"] = None
@@ -194,7 +183,7 @@ Classify the intent and extract equity value if applicable."""
         lines = [q.text, ""]
         for i, opt in enumerate(q.options, start=1):
             lines.append(f"{i}) {opt}")
-        lines += ["", get_questionnaire_question_template()]
+        lines += ["", RiskMessages.questionnaire_question_template()]
         
         msg = "\n".join(lines)
         state["messages"].append({"role": "ai", "content": msg})
@@ -229,10 +218,7 @@ Classify the intent and extract equity value if applicable."""
         if choice_result is None:
             # Unclear input -> retry
             options_text = "\n".join([f"{i}) {opt}" for i, opt in enumerate(q.options, start=1)])
-            msg = UNKNOWN_QUESTIONNAIRE_RESPONSE_TEMPLATE.format(
-                question_text=q.text,
-                options=options_text
-            ) + "\n\nReply with the option number (e.g., '2')."
+            msg = RiskMessages.unknown_questionnaire_response(q.text, options_text) + "\n\nReply with the option number (e.g., '2')."
             state["messages"].append({"role": "ai", "content": msg})
             self._set_status(state, "risk", awaiting_input=True)
             return state
@@ -309,13 +295,12 @@ Classify the intent and extract equity value if applicable."""
         # Map qid -> label from questions
         qlabel_by_id = {q.id: q.label for q in self.risk_manager.questions}
         
-        msg = get_questionnaire_finalization_message(eq_pct/100, bd_pct/100, state["answers"])
+        msg = RiskMessages.questionnaire_finalization(eq_pct/100, bd_pct/100, state["answers"])
         state["messages"].append({"role": "ai", "content": msg})
         
         # Reset questionnaire state
         self._in_questionnaire = False
         self._current_question_idx = 0
-        self._set_status(state, "risk", done=True)
         self._set_status(state, "risk", awaiting_input=True)
         
         return state
@@ -358,11 +343,10 @@ Classify the intent and extract equity value if applicable."""
         
         elif action == "proceed":
             if state.get("risk"):
-                self._set_status(state, "risk", done=True)
-                self._set_status(state, "risk", awaiting_input=False)
+                self._set_status(state, "risk", done=True, awaiting_input=False)
                 return state
             else:
-                msg = PROCEED_WITHOUT_RISK_MESSAGE
+                msg = RiskMessages.proceed_without_risk()
                 state["messages"].append({"role": "ai", "content": msg})
                 self._set_status(state, "risk", awaiting_input=True)
                 return state
@@ -373,7 +357,7 @@ Classify the intent and extract equity value if applicable."""
                 self._risk_intro_done = True
                 return self._ask_mode_selection(state)
             else:
-                msg = UNKNOWN_INTENT_MESSAGE
+                msg = RiskMessages.unknown_intent()
                 state["messages"].append({"role": "ai", "content": msg})
                 self._set_status(state, "risk", awaiting_input=True)
                 return state
@@ -385,14 +369,8 @@ Classify the intent and extract equity value if applicable."""
         """
         # If awaiting input, go to end to wait for user input
         status = self._get_status(state, "risk")
-        if status["awaiting_input"]:
-            return "__end__"
-        
-        # Check if user wants to use guidance mode (even if risk exists)
-        if state.get("messages") and state["messages"][-1].get("role") == "user":
-            last_user = state["messages"][-1]["content"].lower()
-            if any(word in last_user for word in ["guidance", "questionnaire", "help me decide"]):
-                return "__end__"  # Stay in risk agent to handle guidance
+        # if status["awaiting_input"]:
+        #     return "__end__"
         
         # If risk exists and user wants to proceed, go to reviewer
         if state.get("risk") and status["done"]:

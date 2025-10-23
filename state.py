@@ -16,3 +16,4 @@ class AgentState(TypedDict, total=False):
     all_phases_complete: bool            # All phases completed
     next_phase: Optional[str]            # Next phase to go to (set by reviewer)
     status_tracking: Optional[Dict[str, Dict[str, bool]]]  # {"risk": {"done": bool, "awaiting_input": bool}, ...}
+    summary_shown: Dict[str, bool]  # Track if summary has been shown for each phase

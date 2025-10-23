@@ -207,6 +207,12 @@ class ReviewerAgent:
                     state["intent_to_investment"] = False
                     state["intent_to_trading"] = False
                     state["entry_greeted"] = False
+                    state["summary_shown"] = {
+                        "risk": False,
+                        "portfolio": False,
+                        "investment": False,
+                        "trading": False
+                    }
                     
                     # Reset status tracking for all agents
                     state["status_tracking"] = {
@@ -261,50 +267,6 @@ class ReviewerAgent:
         Returns:
             Next node name
         """
-        # Check if any phase needs to continue their work
-        phases = ["risk", "portfolio", "investment", "trading"]
-        validation_results = {}
-        
-        for phase in phases:
-            is_complete, _ = self._validate_phase_completion(state, phase)
-            validation_results[phase] = (is_complete, _)
-        
-        incomplete_phases = [phase for phase, (is_complete, _) in validation_results.items() if not is_complete]
-        
-        # Only route back to phases that have been started but are incomplete
-        started_phases = []
-        if state.get("risk"):
-            started_phases.append("risk")
-        if state.get("portfolio"):
-            started_phases.append("portfolio")
-        if state.get("investment"):
-            started_phases.append("investment")
-        if state.get("trading_requests"):
-            started_phases.append("trading")
-        
-        # Find incomplete phases that have been started AND are actually incomplete
-        incomplete_started_phases = []
-        for phase_name in incomplete_phases:
-            if phase_name in started_phases:
-                # Double-check that this phase is actually incomplete
-                is_complete, _ = validation_results[phase_name]
-                if not is_complete:
-                    incomplete_started_phases.append(phase_name)
-        
-        if incomplete_started_phases:
-            # Route back to the first incomplete phase that has been started
-            phase_name = incomplete_started_phases[0]
-            # Only reset done flag if the phase is actually incomplete
-            if not validation_results[phase_name][0]:  # if not complete
-                self._set_status(state, "reviewer", done=False)
-            if phase_name == "risk":
-                return "risk_agent"
-            elif phase_name == "portfolio":
-                return "portfolio_agent"
-            elif phase_name == "investment":
-                return "investment_agent"
-            elif phase_name == "trading":
-                return "trading_agent"
         
         # Check if all phases are complete
         if state.get("all_phases_complete"):
@@ -326,11 +288,6 @@ class ReviewerAgent:
             else:
                 # No user input yet - stay in reviewer agent to show completion message
                 return "__end__"
-        
-        # Check if any phase is ready to proceed
-        if state.get("ready_to_proceed"):
-            # There are phases ready to proceed - route to entry agent to show prompts
-            return "robo_entry"
         
         # All phases are complete or no incomplete phases found - route to entry agent
         return "robo_entry"

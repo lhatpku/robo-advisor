@@ -96,22 +96,29 @@ if __name__ == "__main__":
 
     graph = build_graph(llm)
 
-    # Initial state (note: no extra fields beyond what's already defined in AgentState)
+    # Initial state - start fresh with entry agent
     state: AgentState = {
-        "messages": [],
+        "messages": [
+            {"role": "ai", "content": "Welcome to the AI Robo-Advisor! I'll help you create a personalized investment plan through a structured process."}
+        ],
         "answers": {},
         "risk": None,
-        "intent_to_risk": False,  # set by entry agent
+        "intent_to_risk": False,
         "intent_to_portfolio": False,
         "intent_to_investment": False,
         "intent_to_trading": False,
-        "entry_greeted": False,
         "portfolio": None,
         "investment": None,
         "trading_requests": None,
         "ready_to_proceed": None,
         "all_phases_complete": False,
-        "next_phase": None,
+        "next_phase": "risk",  # Start with risk assessment
+        "summary_shown": {
+            "risk": False,
+            "portfolio": False,
+            "investment": False,
+            "trading": False
+        },  # Track if summary has been shown for each phase
         "status_tracking": {
             "risk": {"done": False, "awaiting_input": False},
             "portfolio": {"done": False, "awaiting_input": False},

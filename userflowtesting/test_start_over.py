@@ -38,11 +38,8 @@ def test_start_over_functionality():
             {"role": "ai", "content": "Trading requests complete."},
             {"role": "user", "content": "proceed"}  # This should trigger final completion
         ],
-        "q_idx": 0,
-        "answers": [],
-        "done": True,
+        "answers": {},
         "risk": {"equity": 0.6, "bond": 0.4},
-        "awaiting_input": False,
         "intent_to_risk": False,
         "entry_greeted": True,
         "intent_to_portfolio": False,
@@ -58,7 +55,20 @@ def test_start_over_functionality():
         },
         "ready_to_proceed": None,
         "all_phases_complete": True,
-        "next_phase": None
+        "next_phase": None,
+        "summary_shown": {
+            "risk": True,
+            "portfolio": True,
+            "investment": True,
+            "trading": True
+        },
+        "status_tracking": {
+            "risk": {"done": True, "awaiting_input": False},
+            "portfolio": {"done": True, "awaiting_input": False},
+            "investment": {"done": True, "awaiting_input": False},
+            "trading": {"done": True, "awaiting_input": False},
+            "reviewer": {"done": False, "awaiting_input": False}
+        }
     }
     
     print("📊 Initial state:")

@@ -40,7 +40,13 @@ def test_trading_completion():
         "trading_requests": None,
         "ready_to_proceed": None,
         "all_phases_complete": False,
-        "next_phase": None,
+        "next_phase": "trading",
+        "summary_shown": {
+            "risk": True,
+            "portfolio": True,
+            "investment": True,
+            "trading": False
+        },
         "status_tracking": {
             "risk": {"done": True, "awaiting_input": False},
             "portfolio": {"done": True, "awaiting_input": False},

@@ -41,11 +41,17 @@ def test_portfolio_to_investment():
         'trading_requests': None,
         'ready_to_proceed': None,
         'all_phases_complete': False,
-        'next_phase': None,
+        'next_phase': 'investment',
+        'summary_shown': {
+            'risk': True,
+            'portfolio': True,
+            'investment': False,
+            'trading': False
+        },
         'status_tracking': {
-            'risk': {'done': False, 'awaiting_input': False},
-            'portfolio': {'done': False, 'awaiting_input': True},
-            'investment': {'done': False, 'awaiting_input': False},
+            'risk': {'done': True, 'awaiting_input': False},
+            'portfolio': {'done': True, 'awaiting_input': False},
+            'investment': {'done': False, 'awaiting_input': True},
             'trading': {'done': False, 'awaiting_input': False},
             'reviewer': {'done': False, 'awaiting_input': False}
         }

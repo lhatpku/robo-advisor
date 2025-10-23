@@ -7,6 +7,7 @@ from portfolio.portfolio_manager import PortfolioManager
 from state import AgentState
 from langchain_openai import ChatOpenAI
 from pydantic import BaseModel, Field
+from prompts.portfolio_prompts import INTENT_CLASSIFICATION_PROMPT, PortfolioMessages
 
 
 class PortfolioIntent(BaseModel):
@@ -21,10 +22,6 @@ class PortfolioIntent(BaseModel):
     cash_value: Optional[float] = Field(
         default=None, 
         description="Cash reserve value if user wants to set cash"
-    )
-    confidence: float = Field(
-        default=0.0,
-        description="Confidence score for the intent classification (0-1)"
     )
 
 
@@ -68,39 +65,14 @@ class PortfolioAgent:
     
     def _classify_intent(self, user_input: str) -> PortfolioIntent:
         """Classify user intent using LLM with structured output."""
-        prompt = f"""
-You are a portfolio optimization assistant. Classify the user's intent from their input.
-
-User input: "{user_input}"
-
-Available actions:
-- set_lambda: User wants to set the lambda parameter (e.g., "set lambda to 1.5", "lambda 2")
-- set_cash: User wants to set the cash reserve parameter (e.g., "set cash to 0.03", "cash 0.02")
-- run_optimization: User wants to run portfolio optimization (e.g., "run", "optimize", "go")
-- review: User wants to review current portfolio (e.g., "review", "show", "display")
-- proceed: User wants to proceed to next step (e.g., "proceed", "next", "continue", "looks good", "satisfied", "go ahead", "move on", "fine as is", "I'm done")
-- unknown: Intent is unclear or not related to portfolio optimization
-
-Extract the specific values if setting parameters. For cash reserve, use values between 0.02 and 0.05.
-For lambda, use positive values typically between 0.1 and 10.
-
-Examples:
-- "set cash as 0.02" -> action: set_cash, cash_value: 0.02
-- "lambda 1.5" -> action: set_lambda, lambda_value: 1.5
-- "run" -> action: run_optimization
-- "review" -> action: review
-- "proceed" -> action: proceed
-- "looks good" -> action: proceed
-- "I'm satisfied" -> action: proceed
-- "hello" -> action: unknown
-"""
+        prompt = INTENT_CLASSIFICATION_PROMPT.format(user_input=user_input)
         
         try:
             intent = self._structured_llm.invoke(prompt)
             return intent
         except Exception as e:
             print(f"Error classifying intent: {e}")
-            return PortfolioIntent(action="unknown", confidence=0.0)
+            return PortfolioIntent(action="unknown")
     
     def _format_portfolio(self, portfolio: Dict[str, float]) -> str:
         """Return a compact markdown table of weights sorted by weight desc."""
@@ -124,12 +96,7 @@ Examples:
             
         Returns:
             Updated agent state
-        """
-        # Initialize global state if first time
-        status = self._get_status(state, "portfolio")
-        if not status["awaiting_input"] and not status["done"]:
-            self._set_status(state, "portfolio", awaiting_input=True, done=False)
-        
+        """       
         # Use global state for persistence across graph invocations
         status = self._get_status(state, "portfolio")
         if not status["awaiting_input"]:
@@ -139,7 +106,7 @@ Examples:
         
         risk = state.get("risk") or {}
         if not risk:
-            state["messages"].append({"role":"ai","content":"I need the equity/bond recommendation from the risk Agent before I can build the portfolio."})
+            state["messages"].append({"role":"ai","content": PortfolioMessages.need_risk_data()})
             return state
 
         # Use instance variables for current parameters
@@ -164,12 +131,12 @@ Examples:
                 self._lambda = intent.lambda_value
                 state["messages"].append({
                     "role": "ai", 
-                    "content": f"✅ Set lambda to {intent.lambda_value}. Current parameters: • Lambda: {intent.lambda_value} • Cash Reserve: {cash_reserve:.2f}\n\nSay 'run' to optimize or 'set cash to X' to adjust further."
+                    "content": PortfolioMessages.lambda_set_success(intent.lambda_value, cash_reserve)
                 })
             else:
                 state["messages"].append({
                     "role": "ai", 
-                    "content": "Please specify a lambda value. For example: 'set lambda to 1.5' or 'lambda 2'"
+                    "content": PortfolioMessages.lambda_set_missing_value()
                 })
             self._set_status(state, "portfolio", awaiting_input=True)
             return state
@@ -181,17 +148,17 @@ Examples:
                     self._cash_reserve = intent.cash_value
                     state["messages"].append({
                         "role": "ai", 
-                        "content": f"✅ Set cash reserve to {intent.cash_value:.2f}. Current parameters: • Lambda: {lam} • Cash Reserve: {intent.cash_value:.2f}\n\nSay 'run' to optimize or 'set lambda to X' to adjust further."
+                        "content": PortfolioMessages.cash_set_success(intent.cash_value, lam)
                     })
                 else:
                     state["messages"].append({
                         "role": "ai", 
-                        "content": f"❌ Cash reserve must be between {min_cash:.2f} and {max_cash:.2f}. You entered {intent.cash_value:.2f}."
+                        "content": PortfolioMessages.cash_set_invalid_value(intent.cash_value, min_cash, max_cash)
                     })
             else:
                 state["messages"].append({
                     "role": "ai", 
-                    "content": f"Please specify a cash reserve value between {min_cash:.2f} and {max_cash:.2f}. For example: 'set cash to 0.03' or 'cash 0.02'"
+                    "content": PortfolioMessages.cash_set_missing_value(min_cash, max_cash)
                 })
             self._set_status(state, "portfolio", awaiting_input=True)
             return state
@@ -214,13 +181,13 @@ Examples:
                 table = self._format_portfolio(res)
                 state["messages"].append({
                     "role":"ai",
-                    "content": f"Optimization complete{note}. I've built your asset-class portfolio.\n\n{table}\n\n Review weights or proceed to ETF selection?"
+                    "content": PortfolioMessages.optimization_success(table, note)
                 })
                 executed_optimizer = True
                 # Set awaiting_input to True to allow review/editing, but not done yet
                 self._set_status(state, "portfolio", awaiting_input=True, done=False)
             else:
-                state["messages"].append({"role":"ai","content": "Portfolio optimization failed. Please try again."})
+                state["messages"].append({"role":"ai","content": PortfolioMessages.optimization_failed()})
                 self._set_status(state, "portfolio", awaiting_input=True)
             return state
             
@@ -230,34 +197,25 @@ Examples:
                 table = self._format_portfolio(state["portfolio"])
                 state["messages"].append({
                     "role":"ai",
-                    "content": f"**Your current portfolio:**\n\n{table}\n\n**Current parameters:** • Lambda: {lam} • Cash Reserve: {cash_reserve:.2f}\n\n**What would you like to do next?**\n• **Edit** parameters: say 'set lambda to X' or 'set cash to Y'\n• **Re-optimize**: say 'run' to optimize with current parameters\n• **Proceed** to ETF selection: say 'proceed'"
+                    "content": PortfolioMessages.review_current_portfolio(table, lam, cash_reserve)
                 })
             else:
                 # Show intro message if no portfolio exists
                 state["messages"].append({
                     "role":"ai",
-                    "content": (
-                        "Here's the plan: I'll build an asset-class portfolio using mean-variance optimization.\n"
-                        f"Defaults are **lambda = {lam}** and **cash_reserve = {cash_reserve:.2f}**.\n"
-                        f"Say \"set lambda to 1\", \"set cash to {max_cash:.2f}\", or just \"run\" to optimize now."
-                    )
+                    "content": PortfolioMessages.intro_message(lam, cash_reserve, max_cash)
                 })
             self._set_status(state, "portfolio", awaiting_input=True)
             return state
             
         elif intent.action == "proceed":
             if state.get("portfolio"):
-                state["messages"].append({"role": "ai", "content": "Great — proceeding to the next step."})
                 self._set_status(state, "portfolio", done=True, awaiting_input=False)
             else:
                 # Show intro message if no portfolio exists
                 state["messages"].append({
                     "role": "ai",
-                    "content": (
-                        "Here's the plan: I'll build an asset-class portfolio using mean-variance optimization.\n"
-                        f"Defaults are **lambda = {lam}** and **cash_reserve = {cash_reserve:.2f}**.\n"
-                        f"Say \"set lambda to 1\", \"set cash to {max_cash:.2f}\", or just \"run\" to optimize now."
-                    )
+                    "content": PortfolioMessages.intro_message(lam, cash_reserve, max_cash)
                 })
                 self._set_status(state, "portfolio", awaiting_input=True)
             return state
@@ -266,11 +224,7 @@ Examples:
             # Show intro message for unclear inputs
             state["messages"].append({
                 "role":"ai",
-                "content": (
-                    "Here's the plan: I'll build an asset-class portfolio using mean-variance optimization.\n"
-                    f"Defaults are **lambda = {lam}** and **cash_reserve = {cash_reserve:.2f}**.\n"
-                    f"Say \"set lambda to 1\", \"set cash to {max_cash:.2f}\", or just \"run\" to optimize now."
-                )
+                "content": PortfolioMessages.intro_message(lam, cash_reserve, max_cash)
             })
             self._set_status(state, "portfolio", awaiting_input=True)
             return state
