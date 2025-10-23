@@ -90,7 +90,12 @@ class RebalanceConfig:
     cash_band_penalty_weight: float = 0.2
     
     # Tax parameters
-    tax_rates: TaxRates = TaxRates()
+    tax_rates: TaxRates = None
+    
+    def __post_init__(self):
+        """Initialize with default TaxRates if not provided"""
+        if self.tax_rates is None:
+            self.tax_rates = TaxRates()
     soft_tax_cap: float = 10000.0  # Soft cap in dollars
     tax_penalty_exponent: float = 2.0  # Exponent for increasing penalty
     
