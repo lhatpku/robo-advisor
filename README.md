@@ -117,6 +117,19 @@ python app.py
 python gradio_app.py
 ```
 
+### 4. Deploy to Streamlit Cloud
+
+For production deployment, see the [Deployment Guide](DEPLOYMENT.md) for detailed instructions.
+
+**Quick Deploy Steps:**
+1. Push your code to GitHub
+2. Go to [share.streamlit.io](https://share.streamlit.io)
+3. Connect your repository
+4. Set your OpenAI API key in secrets
+5. Deploy!
+
+Your app will be live at `https://your-username-robo-advisor.streamlit.app`
+
 ---
 
 ## 🎨 Streamlit Web Interface Features
