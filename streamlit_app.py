@@ -15,6 +15,15 @@ from langchain_openai import ChatOpenAI
 # Load environment variables
 load_dotenv()
 
+# Configuration function
+def get_config():
+    """Get configuration from environment variables"""
+    return {
+        "api_key": os.getenv("OPENAI_API_KEY"),
+        "model": os.getenv("OPENAI_MODEL", "gpt-4o-mini"),
+        "temperature": float(os.getenv("OPENAI_TEMPERATURE", "0.2"))
+    }
+
 # Page configuration
 st.set_page_config(
     page_title="Robo-Advisor",
@@ -121,9 +130,17 @@ def initialize_session_state():
     
     if 'graph' not in st.session_state:
         # Initialize the graph
+        config = get_config()
+        
+        # Check if API key is provided
+        if not config["api_key"]:
+            st.error("❌ OpenAI API key not found! Please set the OPENAI_API_KEY environment variable.")
+            st.stop()
+        
         llm = ChatOpenAI(
-            model=os.getenv("OPENAI_MODEL", "gpt-4o-mini"),
-            temperature=float(os.getenv("OPENAI_TEMPERATURE", "0.2")),
+            api_key=config["api_key"],
+            model=config["model"],
+            temperature=config["temperature"],
         )
         st.session_state.graph = build_graph(llm)
     
