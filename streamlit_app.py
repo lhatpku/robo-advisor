@@ -118,7 +118,13 @@ def initialize_session_state():
             "trading_requests": None,
             "ready_to_proceed": None,
             "all_phases_complete": False,
-            "next_phase": None,
+            "next_phase": "risk",
+            "summary_shown": {
+                "risk": False,
+                "portfolio": False,
+                "investment": False,
+                "trading": False
+            },
             "status_tracking": {
                 "risk": {"done": False, "awaiting_input": False},
                 "portfolio": {"done": False, "awaiting_input": False},
@@ -163,7 +169,13 @@ def reset_app():
         "trading_requests": None,
         "ready_to_proceed": None,
         "all_phases_complete": False,
-        "next_phase": None,
+        "next_phase": "risk",
+        "summary_shown": {
+            "risk": False,
+            "portfolio": False,
+            "investment": False,
+            "trading": False
+        },
         "status_tracking": {
             "risk": {"done": False, "awaiting_input": False},
             "portfolio": {"done": False, "awaiting_input": False},
