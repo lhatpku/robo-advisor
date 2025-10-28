@@ -388,10 +388,6 @@ python app.py
 
 ---
 
-**See [USER_FLOW.md](USER_FLOW.md) for detailed flow diagram and routing logic.**
-
----
-
 ## 🔮 Implementation Status
 
 | Phase | Status | Description |

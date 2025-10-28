@@ -11,9 +11,25 @@ from dotenv import load_dotenv
 from app import build_graph
 from state import AgentState
 from langchain_openai import ChatOpenAI
+from guards import get_guard
 
 # Load environment variables
 load_dotenv()
+
+# Install validators on first run (for Streamlit Cloud deployment)
+if not os.path.exists(".guards_setup_complete"):
+    try:
+        import subprocess
+        import sys
+        subprocess.check_call([
+            sys.executable, "-m", "guardrails", "hub", "install", 
+            "hub://guardrails/unusual_prompt"
+        ], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        # Create marker file to indicate setup is complete
+        with open(".guards_setup_complete", "w") as f:
+            f.write("complete")
+    except Exception:
+        pass  # Continue even if installation fails (will try again next time)
 
 # Configuration function
 def get_config():
@@ -507,6 +523,21 @@ def main():
             submitted = st.form_submit_button("Send", type="primary")
             
             if submitted and user_input:
+                # Initialize guard if not already done
+                if 'guard' not in st.session_state:
+                    st.session_state.guard = get_guard()
+                
+                # Validate user input for prompt injection attempts
+                is_safe, error_msg = st.session_state.guard.validate(user_input)
+                if not is_safe:
+                    # Add AI message to chat explaining the issue
+                    st.session_state.state["messages"].append({
+                        "role": "ai",
+                        "content": f"⚠️ {error_msg}\n\nPlease try rephrasing your message in a different way."
+                    })
+                    st.rerun()
+                    return
+                
                 # Add user message to state
                 st.session_state.state["messages"].append({"role": "user", "content": user_input})
                 

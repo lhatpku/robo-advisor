@@ -209,4 +209,7 @@ __marimo__/
 # Streamlit
 .streamlit/secrets.toml
 
+# Guardrails setup marker
+.guards_setup_complete
+
 DEPLOYMENT.md
