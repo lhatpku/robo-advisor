@@ -11,12 +11,10 @@ from dotenv import load_dotenv
 from app import build_graph
 from state import AgentState
 from langchain_openai import ChatOpenAI
-from guards import get_guard
-
 # Load environment variables
 load_dotenv()
 
-# Install validators on first run (for Streamlit Cloud deployment)
+# Install validators BEFORE importing get_guard (for Streamlit Cloud deployment)
 if not os.path.exists(".guards_setup_complete"):
     try:
         import subprocess
@@ -30,6 +28,9 @@ if not os.path.exists(".guards_setup_complete"):
             f.write("complete")
     except Exception:
         pass  # Continue even if installation fails (will try again next time)
+
+# Now import get_guard (after validators are installed)
+from guards import get_guard
 
 # Configuration function
 def get_config():
