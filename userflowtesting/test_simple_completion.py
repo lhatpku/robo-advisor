@@ -49,8 +49,8 @@ def test_simple_completion():
         "investment": {"fund1": {"ticker": "SPY", "weight": 0.1}},
         "trading_requests": {
             "trading_requests": [
-                {"side": "BUY", "ticker": "SPY", "price": 400.0, "shares": 10},
-                {"side": "SELL", "ticker": "CASH", "price": 1.0, "shares": 1000}
+                {"Side": "BUY", "Ticker": "SPY", "Price": 400.0, "Shares": 10},
+                {"Side": "SELL", "Ticker": "CASH", "Price": 1.0, "Shares": 1000}
             ]
         },
         "ready_to_proceed": None,

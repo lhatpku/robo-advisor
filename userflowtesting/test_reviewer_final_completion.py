@@ -119,30 +119,6 @@ def test_reviewer_final_completion():
         print(f"❌ Error: {e}")
         return False
     
-    # Test 3: User says "proceed" - should show final confirmation and route to entry agent
-    print("\n--- Test 3: User says 'proceed' ---")
-    # Reset to completion state first
-    state["all_phases_complete"] = True
-    state["risk"] = {"equity": 0.6, "bond": 0.4}
-    state["portfolio"] = {"large cap growth": 0.1, "bonds": 0.4, "cash": 0.05}
-    state["investment"] = {"fund1": {"ticker": "SPY", "weight": 0.1}}
-    state["trading_requests"] = {"trading_requests": [{"side": "BUY", "ticker": "SPY", "price": 400.0, "shares": 10}]}
-    
-    state["messages"].append({"role": "user", "content": "proceed"})
-    
-    try:
-        state = graph.invoke(state)
-        print(f"✅ After 'proceed':")
-        print(f"   All phases complete: {state.get('all_phases_complete')}")
-        
-        if state["messages"]:
-            last_message = state["messages"][-1]
-            if last_message["role"] == "ai":
-                print(f"🤖 Last AI message: {last_message['content']}")
-        
-    except Exception as e:
-        print(f"❌ Error: {e}")
-        return False
     
     print("\n" + "=" * 60)
     print("✅ Reviewer agent final completion test completed!")

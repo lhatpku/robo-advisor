@@ -119,6 +119,10 @@ class EntryAgent:
         """
         Router function that determines the next step based on intent flags.
         """
+        # If reviewer is awaiting input (e.g., after showing final summary), route to reviewer
+        reviewer_status = state.get("status_tracking", {}).get("reviewer", {})
+        if reviewer_status.get("awaiting_input"):
+            return "reviewer_agent"
         # Check intent flags in order of phases
         if state.get("intent_to_risk"):
             return "risk_agent"

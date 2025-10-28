@@ -1,532 +1,289 @@
-"""
-Portfolio Rebalancing with Tax-Aware Optimization
-
-This module implements a sophisticated rebalancing algorithm that optimizes a single objective
-with soft tax constraints, incorporating:
-- Full covariance risk model for tracking error
-- Lot-aware tax cost calculation with short/long-term rates
-- Soft tax cap with increasing penalty function
-- Cash sweep band management
-- Two-stage integerization for non-fractional trading
-- Frictions modeling (turnover/spread costs)
-"""
-
-from typing import List, Dict, Any, Tuple, Optional
-import numpy as np
-import pandas as pd
-from dataclasses import dataclass
-from enum import Enum
+from typing import List, Dict, Any, Tuple
 import math
-from scipy.optimize import minimize
-from .config import get_tax_rates
-from datetime import datetime, timedelta
+import numpy as np
 
 
-class TaxStatus(Enum):
-    """Tax status for capital gains/losses"""
-    SHORT_TERM = "short_term"
-    LONG_TERM = "long_term"
-
-
-@dataclass
-class Position:
-    """Position data structure"""
-    ticker: str
-    target_weight: float
-    quantity: float
-    cost_basis: float
-    price: float
-    acquisition_date: datetime
-    lot_id: Optional[str] = None  # For lot-aware tax calculation
-    
-    @property
-    def current_value(self) -> float:
-        return self.quantity * self.price
-    
-    @property
-    def unrealized_gain(self) -> float:
-        return self.quantity * (self.price - self.cost_basis)
-    
-    @property
-    def is_short_term(self) -> bool:
-        """Check if position is short-term (< 1 year)"""
-        return (datetime.now() - self.acquisition_date).days < 365
-
-
-@dataclass
-class TaxRates:
-    """Tax rate configuration using config file defaults"""
-    short_term_rate: float = None
-    long_term_rate: float = None
-    net_investment_income_tax: float = None
-    state_tax_rate: float = None
-    
-    def __post_init__(self):
-        """Initialize with config file defaults if not provided"""
-        if self.short_term_rate is None:
-            tax_rates = get_tax_rates()
-            self.short_term_rate = tax_rates['short_term_capital_gains']
-            self.long_term_rate = tax_rates['long_term_capital_gains']
-            self.net_investment_income_tax = tax_rates['medicare_surtax']
-            self.state_tax_rate = tax_rates['state_tax_rate']
-    
-    @property
-    def effective_short_term_rate(self) -> float:
-        return self.short_term_rate + self.net_investment_income_tax + self.state_tax_rate
-    
-    @property
-    def effective_long_term_rate(self) -> float:
-        return self.long_term_rate + self.net_investment_income_tax + self.state_tax_rate
-
-
-@dataclass
-class RebalanceConfig:
-    """Configuration for rebalancing optimization"""
-    # Risk model parameters
-    risk_aversion: float = 1.0
-    tracking_error_weight: float = 1.0
-    tax_penalty_weight: float = 0.5
-    friction_weight: float = 0.1
-    cash_band_penalty_weight: float = 0.2
-    
-    # Tax parameters
-    tax_rates: TaxRates = None
-    
-    def __post_init__(self):
-        """Initialize with default TaxRates if not provided"""
-        if self.tax_rates is None:
-            self.tax_rates = TaxRates()
-    soft_tax_cap: float = 10000.0  # Soft cap in dollars
-    tax_penalty_exponent: float = 2.0  # Exponent for increasing penalty
-    
-    # Cash management
-    cash_sweep_band_min: float = 0.02  # 2% minimum cash
-    cash_sweep_band_max: float = 0.05  # 5% maximum cash
-    
-    # Trading parameters
-    spread_cost_bps: float = 5.0  # 5 basis points spread cost
-    turnover_penalty_bps: float = 2.0  # 2 basis points turnover penalty
-    integer_shares: bool = False
-    
-    # Optimization parameters
-    max_iterations: int = 1000
-    tolerance: float = 1e-6
-
-
-class Rebalancer:
+class SoftObjectiveRebalancer:
     """
-    Portfolio rebalancer with tax-aware optimization
+    Minimal-update rebalancer based on original flow, now with:
+      • CASH as part of positions (ticker="CASH")
+      • Tracking Error (TE) excludes CASH from covariance
+      • Portfolio % calculations include CASH
+
+    Flow:
+      1) Sell losers first (only if overweight)
+      2) Sell gainers if the soft objective improves (ΔTE² + tax_weight * tax_per_$ < 0)
+      3) Buy underweights proportionally using cash, but never drop below min_cash_pct
     """
-    
-    def __init__(self, config: RebalanceConfig = None):
-        self.config = config or RebalanceConfig()
-        self.covariance_matrix: Optional[np.ndarray] = None
-        self.expected_returns: Optional[np.ndarray] = None
-        
-    def set_risk_model(self, covariance_matrix: np.ndarray, expected_returns: np.ndarray = None):
-        """Set the full covariance risk model"""
-        self.covariance_matrix = covariance_matrix
-        self.expected_returns = expected_returns or np.zeros(covariance_matrix.shape[0])
-        
-    def calculate_tracking_error(self, weights: np.ndarray, target_weights: np.ndarray) -> float:
-        """Calculate tracking error using full covariance matrix"""
-        if self.covariance_matrix is None:
-            # Fallback to diagonal approximation
-            return np.sqrt(np.sum((weights - target_weights) ** 2) * 0.04)
-        
-        # Ensure arrays have the same shape as covariance matrix
-        if weights.shape[0] != self.covariance_matrix.shape[0]:
-            # Fallback to diagonal approximation if dimensions don't match
-            return np.sqrt(np.sum((weights - target_weights) ** 2) * 0.04)
-        
-        weight_diff = weights - target_weights
-        return np.sqrt(weight_diff.T @ self.covariance_matrix @ weight_diff)
-    
-    def calculate_tax_cost(self, trades: List[Dict[str, Any]], positions: List[Position]) -> float:
-        """Calculate lot-aware tax cost from proposed trades"""
-        total_tax_cost = 0.0
-        
-        for trade in trades:
-            if trade["side"] == "SELL":
-                ticker = trade["ticker"]
-                shares = trade["shares"]
-                
-                # Find corresponding position
-                position = next((p for p in positions if p.ticker == ticker), None)
-                if not position:
-                    continue
-                
-                # Calculate gain/loss per share
-                gain_per_share = position.price - position.cost_basis
-                total_gain = shares * gain_per_share
-                
-                if total_gain > 0:  # Realized gain
-                    # Determine tax rate based on holding period
-                    if position.is_short_term:
-                        tax_rate = self.config.tax_rates.effective_short_term_rate
-                    else:
-                        tax_rate = self.config.tax_rates.effective_long_term_rate
-                    
-                    tax_cost = total_gain * tax_rate
-                    total_tax_cost += tax_cost
-                # Losses offset gains, so we don't add negative tax cost here
-        
-        return total_tax_cost
-    
-    def calculate_tax_penalty(self, tax_cost: float) -> float:
-        """Calculate soft tax cap penalty with increasing function"""
-        if tax_cost <= self.config.soft_tax_cap:
-            return 0.0
-        
-        excess = tax_cost - self.config.soft_tax_cap
-        penalty = (excess / self.config.soft_tax_cap) ** self.config.tax_penalty_exponent
-        return penalty * self.config.soft_tax_cap
-    
-    def calculate_friction_costs(self, trades: List[Dict[str, Any]]) -> float:
-        """Calculate trading friction costs (spread + turnover)"""
-        total_cost = 0.0
-        
-        for trade in trades:
-            trade_value = abs(trade["proceeds"])
-            
-            # Spread cost
-            spread_cost = trade_value * (self.config.spread_cost_bps / 10000)
-            
-            # Turnover penalty
-            turnover_cost = trade_value * (self.config.turnover_penalty_bps / 10000)
-            
-            total_cost += spread_cost + turnover_cost
-        
-        return total_cost
-    
-    def calculate_cash_band_penalty(self, final_cash_weight: float) -> float:
-        """Calculate penalty for being outside cash sweep band"""
-        if self.config.cash_sweep_band_min <= final_cash_weight <= self.config.cash_sweep_band_max:
-            return 0.0
-        
-        if final_cash_weight < self.config.cash_sweep_band_min:
-            shortage = self.config.cash_sweep_band_min - final_cash_weight
-            return shortage * 1000  # Penalty for being under minimum cash
-        
-        if final_cash_weight > self.config.cash_sweep_band_max:
-            excess = final_cash_weight - self.config.cash_sweep_band_max
-            return excess * 100  # Smaller penalty for excess cash
-        
-        return 0.0
-    
-    def optimize_continuous(self, positions: List[Position], target_weights: Dict[str, float]) -> Dict[str, Any]:
-        """Solve the continuous optimization problem"""
-        n_assets = len(positions)
-        if n_assets == 0:
-            raise ValueError("No positions provided for optimization")
-        
-        tickers = [p.ticker for p in positions]
-        
-        # Convert to numpy arrays
-        current_weights = np.array([p.current_value for p in positions])
-        total_value = np.sum(current_weights)
-        current_weights = current_weights / total_value
-        
-        target_weights_array = np.array([target_weights.get(ticker, 0.0) for ticker in tickers])
-        
-        # Initial guess: current weights
-        x0 = current_weights.copy()
-        
-        # Constraints: weights sum to 1, non-negative
-        constraints = [
-            {'type': 'eq', 'fun': lambda x: np.sum(x) - 1.0}
-        ]
-        
-        bounds = [(0.0, 1.0) for _ in range(n_assets)]
-        
-        def objective(weights):
-            # Tracking error
-            tracking_error = self.calculate_tracking_error(weights, target_weights_array)
-            
-            # Tax cost (simplified for continuous optimization)
-            # This would need to be approximated or handled in integerization stage
-            tax_cost = 0.0  # Placeholder for continuous stage
-            
-            # Friction costs (simplified)
-            weight_changes = np.abs(weights - current_weights)
-            friction_cost = np.sum(weight_changes) * (self.config.spread_cost_bps / 10000)
-            
-            # Cash band penalty
-            cash_weight = weights[tickers.index('sweep_cash')] if 'sweep_cash' in tickers else 0.0
-            cash_penalty = self.calculate_cash_band_penalty(cash_weight)
-            
-            # Combined objective
-            total_cost = (
-                self.config.tracking_error_weight * tracking_error +
-                self.config.tax_penalty_weight * tax_cost +
-                self.config.friction_weight * friction_cost +
-                self.config.cash_band_penalty_weight * cash_penalty
-            )
-            
-            return total_cost
-        
-        # Solve optimization
-        result = minimize(
-            objective,
-            x0,
-            method='SLSQP',
-            bounds=bounds,
-            constraints=constraints,
-            options={'maxiter': self.config.max_iterations, 'ftol': self.config.tolerance}
-        )
-        
-        if not result.success:
-            raise ValueError(f"Optimization failed: {result.message}")
-        
-        return {
-            'optimal_weights': result.x,
-            'objective_value': result.fun,
-            'success': result.success
-        }
-    
-    def integerize_trades(self, positions: List[Position], target_weights: Dict[str, float]) -> List[Dict[str, Any]]:
-        """Two-stage integerization: continuous solution + single-share chooser"""
-        if not self.config.integer_shares:
-            # If fractional shares allowed, use continuous solution directly
-            return self._generate_continuous_trades(positions, target_weights)
-        
-        # Stage 1: Solve continuous problem
-        continuous_result = self.optimize_continuous(positions, target_weights)
-        optimal_weights = continuous_result['optimal_weights']
-        
-        # Stage 2: Apply proceeds-balanced rounding
-        trades = self._round_to_integer_shares(positions, optimal_weights)
-        
-        # Stage 3: Single-share chooser
-        trades = self._single_share_chooser(positions, trades, target_weights)
-        
-        return trades
-    
-    def _round_to_integer_shares(self, positions: List[Position], optimal_weights: np.ndarray) -> List[Dict[str, Any]]:
-        """Round continuous solution to integer shares with proceeds balancing"""
-        trades = []
-        total_value = sum(p.current_value for p in positions)
-        
-        for i, position in enumerate(positions):
-            target_value = optimal_weights[i] * total_value
-            current_value = position.current_value
-            value_change = target_value - current_value
-            
-            if abs(value_change) < 1e-6:  # No significant change needed
-                continue
-            
-            if value_change > 0:  # Buy
-                shares_to_buy = value_change / position.price
-                integer_shares = int(shares_to_buy)
-                if integer_shares > 0:
-                    trades.append({
-                        'ticker': position.ticker,
-                        'side': 'BUY',
-                        'shares': integer_shares,
-                        'proceeds': -integer_shares * position.price,
-                        'realized_gain': 0.0
-                    })
-            else:  # Sell
-                shares_to_sell = abs(value_change) / position.price
-                integer_shares = int(shares_to_sell)
-                if integer_shares > 0:
-                    realized_gain = integer_shares * (position.price - position.cost_basis)
-                    trades.append({
-                        'ticker': position.ticker,
-                        'side': 'SELL',
-                        'shares': integer_shares,
-                        'proceeds': integer_shares * position.price,
-                        'realized_gain': realized_gain
-                    })
-        
-        return trades
-    
-    def _single_share_chooser(self, positions: List[Position], initial_trades: List[Dict[str, Any]], 
-                            target_weights: Dict[str, float]) -> List[Dict[str, Any]]:
-        """Fast single-share chooser for marginal improvements"""
-        # This is a simplified implementation
-        # In practice, this would be a more sophisticated algorithm
-        # that repeatedly finds the best single-share trade
-        
-        trades = initial_trades.copy()
-        max_iterations = 1000
-        
-        for _ in range(max_iterations):
-            best_trade = None
-            best_improvement = 0.0
-            
-            # Evaluate all possible single-share trades
-            for position in positions:
-                # Try buying one share
-                if position.ticker != 'sweep_cash':  # Don't buy cash
-                    improvement = self._evaluate_single_share_trade(
-                        position, 'BUY', 1, positions, target_weights, trades
-                    )
-                    if improvement > best_improvement:
-                        best_improvement = improvement
-                        best_trade = {
-                            'ticker': position.ticker,
-                            'side': 'BUY',
-                            'shares': 1,
-                            'proceeds': -position.price,
-                            'realized_gain': 0.0
-                        }
-                
-                # Try selling one share
-                if position.quantity > 0:
-                    improvement = self._evaluate_single_share_trade(
-                        position, 'SELL', 1, positions, target_weights, trades
-                    )
-                    if improvement > best_improvement:
-                        best_improvement = improvement
-                        best_trade = {
-                            'ticker': position.ticker,
-                            'side': 'SELL',
-                            'shares': 1,
-                            'proceeds': position.price,
-                            'realized_gain': position.price - position.cost_basis
-                        }
-            
-            if best_trade and best_improvement > 0:
-                trades.append(best_trade)
-            else:
+
+    def __init__(
+        self,
+        cov_matrix: np.ndarray,        # (m x m) covariance for NON-CASH tickers
+        tax_weight: float = 1.0,       # relative weight on tax vs. TE²
+        ltcg_rate: float = 0.15,       # expected long-term gains tax rate
+        integer_shares: bool = False,  # True → integer shares only
+        min_cash_pct: float = 0.02     # minimum cash % of total portfolio
+    ):
+        self.Sigma = np.array(cov_matrix, dtype=float)
+        if self.Sigma.shape[0] != self.Sigma.shape[1]:
+            raise ValueError("cov_matrix must be square")
+        self.tax_weight = float(tax_weight)
+        self.ltcg = float(ltcg_rate)
+        self.integer_shares = bool(integer_shares)
+        self.min_cash_pct = float(min_cash_pct)
+
+    # -------------------- main function --------------------
+    def rebalance(self, positions: List[Dict[str, float]]) -> Dict[str, Any]:
+        """
+        positions: list of dicts with keys:
+          {ticker, target_weight, quantity, cost_basis, price}
+
+        CASH row:
+          ticker == "CASH"
+          price = 1.0
+          quantity = current cash amount (dollars)
+          target_weight = target % of total (e.g., 0.04)
+
+        Returns summary dictionary
+        """
+
+        # --- Split CASH and securities ---
+        cash_idx = None
+        for i, p in enumerate(positions):
+            if str(p["ticker"]).upper() == "CASH":
+                cash_idx = i
                 break
-        
-        return trades
-    
-    def _evaluate_single_share_trade(self, position: Position, side: str, shares: int,
-                                   all_positions: List[Position], target_weights: Dict[str, float],
-                                   current_trades: List[Dict[str, Any]]) -> float:
-        """Evaluate the marginal improvement of a single-share trade"""
-        # This is a simplified evaluation
-        # In practice, this would calculate the actual objective improvement
-        
-        if side == 'BUY':
-            # Cost of buying one share
-            cost = position.price
-            # Risk reduction (simplified)
-            risk_reduction = 0.01  # Placeholder
-            return risk_reduction - cost * 0.001  # Small cost penalty
-        
-        else:  # SELL
-            # Proceeds from selling one share
-            proceeds = position.price
-            # Tax cost
-            gain = position.price - position.cost_basis
-            tax_cost = gain * self.config.tax_rates.effective_short_term_rate if position.is_short_term else self.config.tax_rates.effective_long_term_rate
-            # Risk increase (simplified)
-            risk_increase = 0.01  # Placeholder
-            return proceeds - tax_cost - risk_increase
-    
-    def _generate_continuous_trades(self, positions: List[Position], target_weights: Dict[str, float]) -> List[Dict[str, Any]]:
-        """Generate trades for continuous (fractional) shares"""
+        if cash_idx is None:
+            raise ValueError('Missing position with ticker == "CASH"')
+
+        cash_pos = positions[cash_idx]
+        cash = float(cash_pos["quantity"]) * 1.0
+        sec_positions = [p for i, p in enumerate(positions) if i != cash_idx]
+        tickers = [p["ticker"] for p in sec_positions]
+        n = len(tickers)
+        if n == 0:
+            raise ValueError("No securities found besides CASH")
+        if self.Sigma.shape[0] != n:
+            raise ValueError("cov_matrix dimension must match number of NON-CASH tickers")
+
+        tgt_w_all = np.array([float(p["target_weight"]) for p in positions], dtype=float)
+        qty_sec = np.array([float(p["quantity"]) for p in sec_positions], dtype=float)
+        basis = np.array([float(p["cost_basis"]) for p in sec_positions], dtype=float)
+        price = np.array([float(p["price"]) for p in sec_positions], dtype=float)
+
+        # --- Compute total and percentages (include cash) ---
+        sec_val = float(np.dot(qty_sec, price))
+        total_val = sec_val + cash
+        cash_start_pct = cash / total_val if total_val > 1e-12 else 0.0
+
+        # separate target weights
+        tgt_w_sec = np.array([float(p["target_weight"]) for p in sec_positions], dtype=float)
+        tgt_w_cash = float(cash_pos["target_weight"])
+        tgt_w_sum = float(np.sum(tgt_w_sec) + tgt_w_cash)
+        if abs(tgt_w_sum - 1.0) > 1e-4:
+            print(f"⚠️ Warning: target weights sum to {tgt_w_sum:.3f}, not 1.0 (CASH + securities).")
+
+        # --- Helpers ---
+        def portfolio_weights(q_sec: np.ndarray, cash_amt: float) -> Tuple[np.ndarray, float]:
+            sec_value = float(np.dot(q_sec, price))
+            tot_value = sec_value + cash_amt
+            if tot_value <= 1e-12:
+                return np.zeros_like(q_sec), 0.0
+            w_sec = (q_sec * price) / tot_value
+            w_cash = cash_amt / tot_value
+            return w_sec, w_cash
+
+        def te2(q_sec: np.ndarray) -> float:
+            """Tracking error squared, excluding cash"""
+            w_sec, _ = portfolio_weights(q_sec, cash)
+            diff = w_sec - tgt_w_sec  # cash ignored here
+            return float(diff.T @ self.Sigma @ diff)
+
+        def refresh_deltas(q: np.ndarray, cash_amt: float):
+            """Recalculate holdings, total, and deltas (in $ terms)"""
+            sec_value = float(np.dot(q, price))
+            tot_value = sec_value + cash_amt
+            curr_w_sec = (q * price) / tot_value
+            tgt_val_sec = tgt_w_sec * tot_value
+            curr_val_sec = q * price
+            holdings_delta = tgt_val_sec - curr_val_sec  # + => need to buy
+            return holdings_delta, sec_value, tot_value
+
+        # --- Initial state ---
+        initial_te = math.sqrt(max(te2(qty_sec), 0.0))
+        realized_gains_total = 0.0
         trades = []
-        total_value = sum(p.current_value for p in positions)
-        
-        for position in positions:
-            target_value = target_weights.get(position.ticker, 0.0) * total_value
-            current_value = position.current_value
-            value_change = target_value - current_value
-            
-            if abs(value_change) < 1e-6:
+
+        holdings_delta, sec_val, total_val = refresh_deltas(qty_sec, cash)
+
+        # ---------------- STEP 1: Sell losers (if overweight) ----------------
+        for i in range(n):
+            if price[i] <= basis[i] and holdings_delta[i] < -1e-12:
+                desired_sell_value = min(-holdings_delta[i], qty_sec[i] * price[i])
+                shares_to_sell = desired_sell_value / price[i]
+                if self.integer_shares:
+                    shares_to_sell = math.floor(min(shares_to_sell, qty_sec[i]))
+                    if shares_to_sell <= 0:
+                        continue
+                else:
+                    shares_to_sell = min(shares_to_sell, qty_sec[i])
+
+                proceeds = shares_to_sell * price[i]
+                rg = shares_to_sell * (price[i] - basis[i])  # likely ≤ 0
+                qty_sec[i] -= shares_to_sell
+                cash += proceeds
+                realized_gains_total += rg
+
+                trades.append({
+                    "Ticker": tickers[i],
+                    "Side": "SELL",
+                    "Shares": int(shares_to_sell) if self.integer_shares else shares_to_sell,
+                    "Price": price[i],
+                    "Proceeds": proceeds,
+                    "RealizedGain": rg
+                })
+                holdings_delta, sec_val, total_val = refresh_deltas(qty_sec, cash)
+
+        # ---------------- STEP 2: Sell gainers if ΔU < 0 ----------------
+        def delta_te2_per_dollar_sell(i: int, q: np.ndarray) -> float:
+            if q[i] <= 0 or price[i] <= 0:
+                return 0.0
+            d_shares = 1.0 / price[i]
+            q_new = q.copy()
+            q_new[i] = max(0.0, q_new[i] - d_shares)
+            return te2(q_new) - te2(q)
+
+        def tax_per_dollar_sell(i: int) -> float:
+            if price[i] <= 0:
+                return 0.0
+            gain_per_share = price[i] - basis[i]
+            return self.ltcg * (gain_per_share / price[i])
+
+        def objective_delta_per_dollar_sell(i: int, q: np.ndarray) -> float:
+            return delta_te2_per_dollar_sell(i, q) + self.tax_weight * tax_per_dollar_sell(i)
+
+        gainers = [i for i in range(n) if price[i] > basis[i] and holdings_delta[i] < -1e-12]
+        per_dollar_scores = [(objective_delta_per_dollar_sell(i, qty_sec), i) for i in gainers]
+        per_dollar_scores.sort(key=lambda x: x[0])
+
+        for dU_per_dollar, i in per_dollar_scores:
+            if dU_per_dollar >= 0:
                 continue
-            
-            if value_change > 0:  # Buy
-                shares = value_change / position.price
-                trades.append({
-                    'ticker': position.ticker,
-                    'side': 'BUY',
-                    'shares': shares,
-                    'proceeds': -value_change,
-                    'realized_gain': 0.0
-                })
-            else:  # Sell
-                shares = abs(value_change) / position.price
-                realized_gain = shares * (position.price - position.cost_basis)
-                trades.append({
-                    'ticker': position.ticker,
-                    'side': 'SELL',
-                    'shares': shares,
-                    'proceeds': abs(value_change),
-                    'realized_gain': realized_gain
-                })
-        
-        return trades
-    
-    def rebalance_portfolio(self, positions: List[Position], target_weights: Dict[str, float]) -> Dict[str, Any]:
-        """
-        Main rebalancing function with enhanced tax-aware optimization
-        """
-        # Generate trades using integerization
-        trades = self.integerize_trades(positions, target_weights)
-        
-        # Calculate final metrics
-        total_tax_cost = self.calculate_tax_cost(trades, positions)
-        tax_penalty = self.calculate_tax_penalty(total_tax_cost)
-        friction_costs = self.calculate_friction_costs(trades)
-        
-        # Calculate final weights
-        total_value = sum(p.current_value for p in positions)
-        final_weights = {p.ticker: p.current_value / total_value for p in positions}
-        
-        # Calculate tracking error
-        # Align arrays with covariance matrix (use positions tickers)
-        position_tickers = [p.ticker for p in positions]
-        target_weights_array = np.array([target_weights.get(ticker, 0.0) for ticker in position_tickers])
-        final_weights_array = np.array([final_weights.get(ticker, 0.0) for ticker in position_tickers])
-        tracking_error = self.calculate_tracking_error(final_weights_array, target_weights_array)
-        
-        # Calculate cash band penalty
-        cash_weight = final_weights.get('sweep_cash', 0.0)
-        cash_penalty = self.calculate_cash_band_penalty(cash_weight)
-        
+            desired_sell_value = min(-holdings_delta[i], qty_sec[i] * price[i])
+            if desired_sell_value <= 1e-9:
+                continue
+            shares_to_sell = desired_sell_value / price[i]
+            if self.integer_shares:
+                shares_to_sell = math.floor(min(shares_to_sell, qty_sec[i]))
+                if shares_to_sell <= 0:
+                    continue
+            else:
+                shares_to_sell = min(shares_to_sell, qty_sec[i])
+
+            proceeds = shares_to_sell * price[i]
+            rg = shares_to_sell * (price[i] - basis[i])
+            qty_sec[i] -= shares_to_sell
+            cash += proceeds
+            realized_gains_total += rg
+
+            trades.append({
+                "Ticker": tickers[i],
+                "Side": "SELL",
+                "Shares": int(shares_to_sell) if self.integer_shares else shares_to_sell,
+                "Price": price[i],
+                "Proceeds": proceeds,
+                "RealizedGain": rg
+            })
+            holdings_delta, sec_val, total_val = refresh_deltas(qty_sec, cash)
+
+        # ---------------- STEP 3: Buy underweights (respect min cash %) ----------------
+        min_cash_abs = self.min_cash_pct * total_val
+        spendable_cash = max(0.0, cash - min_cash_abs)
+        under_dollar = np.maximum(holdings_delta, 0.0)
+        total_under = float(np.sum(under_dollar))
+
+        if total_under > 1e-9 and spendable_cash > 1e-9:
+            if not self.integer_shares:
+                for i in range(n):
+                    if under_dollar[i] <= 0:
+                        continue
+                    alloc = spendable_cash * (under_dollar[i] / total_under)
+                    shares_to_buy = alloc / price[i]
+                    cost = shares_to_buy * price[i]
+                    qty_sec[i] += shares_to_buy
+                    cash -= cost
+                    trades.append({
+                        "Ticker": tickers[i],
+                        "Side": "BUY",
+                        "Shares": shares_to_buy,
+                        "Price": price[i],
+                        "Proceeds": -cost,
+                        "RealizedGain": 0.0
+                    })
+            else:
+                for _ in range(5000):
+                    sec_val = float(np.dot(qty_sec, price))
+                    total_val = sec_val + cash
+                    min_cash_abs = self.min_cash_pct * total_val
+                    spendable_cash = cash - min_cash_abs
+                    if spendable_cash < min(price):
+                        break
+                    holdings_delta, _, _ = refresh_deltas(qty_sec, cash)
+                    under_dollar = np.maximum(holdings_delta, 0.0)
+                    if np.sum(under_dollar) <= 1e-9:
+                        break
+                    gaps = [(i, (tgt_w_sec[i] - (qty_sec[i] * price[i]) / total_val) / price[i])
+                            for i in range(n) if under_dollar[i] > 0 and price[i] <= spendable_cash]
+                    if not gaps:
+                        break
+                    gaps.sort(key=lambda x: x[1], reverse=True)
+                    i_pick = gaps[0][0]
+                    qty_sec[i_pick] += 1.0
+                    cash -= price[i_pick]
+                    trades.append({
+                        "Ticker": tickers[i_pick],
+                        "Side": "BUY",
+                        "Shares": 1,
+                        "Price": price[i_pick],
+                        "Proceeds": -price[i_pick],
+                        "RealizedGain": 0.0
+                    })
+
+        # ---------------- Summary ----------------
+        final_te = math.sqrt(max(te2(qty_sec), 0.0))
+        sec_val_final = float(np.dot(qty_sec, price))
+        total_val_final = sec_val_final + cash
+        cash_end_pct = cash / total_val_final if total_val_final > 1e-12 else 0.0
+        realized_gain = realized_gains_total
+        est_tax_cost = self.ltcg * realized_gain
+
+        post_alloc = []
+        for i, t in enumerate(tickers):
+            post_alloc.append({
+                "Ticker": t,
+                "FinalQty": qty_sec[i],
+                "Price": price[i],
+                "Final$": qty_sec[i] * price[i],
+                "FinalWeight": (qty_sec[i] * price[i]) / total_val_final,
+                "TargetWeight": tgt_w_sec[i]
+            })
+        post_alloc.append({
+            "Ticker": "CASH",
+            "FinalQty": cash,
+            "Price": 1.0,
+            "Final$": cash,
+            "FinalWeight": cash_end_pct,
+            "TargetWeight": tgt_w_cash
+        })
+
         return {
-            'trades': trades,
-            'final_weights': final_weights,
-            'tracking_error': tracking_error,
-            'tax_cost': total_tax_cost,
-            'tax_penalty': tax_penalty,
-            'friction_costs': friction_costs,
-            'cash_penalty': cash_penalty,
-            'total_objective': tracking_error + tax_penalty + friction_costs + cash_penalty,
-            'success': True
+            "initial_tracking_error": initial_te,
+            "final_tracking_error": final_te,
+            "realized_net_gains": realized_gain,
+            "estimated_tax_cost": est_tax_cost,
+            "cash_start_pct": cash_start_pct,
+            "cash_end_pct": cash_end_pct,
+            "total_traded": sum(abs(tr["Proceeds"]) for tr in trades),
+            "trades": trades,
+            "post_allocation": post_alloc
         }
-
-
-# Convenience function for backward compatibility
-def rebalance_portfolio(
-    positions: List[Dict[str, Any]], 
-    target_weights: Dict[str, float],
-    config: RebalanceConfig = None
-) -> Dict[str, Any]:
-    """
-    Rebalancing function with tax-aware optimization
-    
-    Parameters
-    ----------
-    positions : List[Dict]
-        Each dict has keys {ticker, target_weight, quantity, cost_basis, price, acquisition_date}
-    target_weights : Dict[str, float]
-        Target weights for each asset class
-    config : RebalanceConfig, optional
-        Configuration for rebalancing
-        
-    Returns
-    -------
-    Dict with enhanced rebalancing results
-    """
-    # Convert positions to Position objects
-    position_objects = []
-    for pos in positions:
-        position_objects.append(Position(
-            ticker=pos['ticker'],
-            target_weight=pos.get('target_weight', 0.0),
-            quantity=pos['quantity'],
-            cost_basis=pos['cost_basis'],
-            price=pos['price'],
-            acquisition_date=pos.get('acquisition_date', datetime.now() - timedelta(days=400))  # Default to long-term
-        ))
-    
-    # Create rebalancer and run optimization
-    rebalancer = Rebalancer(config)
-    return rebalancer.rebalance_portfolio(position_objects, target_weights)

@@ -11,7 +11,7 @@ from portfolio.portfolio_agent import PortfolioAgent
 from investment.investment_agent import InvestmentAgent
 from trading.trading_agent import TradingAgent
 from entry_agent import EntryAgent
-from reviewer_agent import ReviewerAgent
+from reviewer.reviewer_agent import ReviewerAgent
 from state import AgentState
 
 # ---------------------------
@@ -36,7 +36,7 @@ def build_graph(llm: ChatOpenAI):
     builder.add_node("investment_agent", investment_agent.step)
     builder.add_node("trading_agent", trading_agent.step)
 
-    builder.set_entry_point("robo_entry")
+    builder.set_entry_point("robo_entry")  # Start with entry agent
 
     # Route from entry agent to specific agents only
     builder.add_conditional_edges("robo_entry", entry_agent.router, {
@@ -44,15 +44,12 @@ def build_graph(llm: ChatOpenAI):
         "portfolio_agent": "portfolio_agent",
         "investment_agent": "investment_agent",
         "trading_agent": "trading_agent",
+        "reviewer_agent": "reviewer_agent",
         "__end__": END
     })
 
     # Route from reviewer agent back to appropriate agents or end
     builder.add_conditional_edges("reviewer_agent", reviewer_agent.router, {
-        "risk_agent": "risk_agent",
-        "portfolio_agent": "portfolio_agent",
-        "investment_agent": "investment_agent",
-        "trading_agent": "trading_agent",
         "robo_entry": "robo_entry",
         "__end__": END
     })
@@ -60,7 +57,6 @@ def build_graph(llm: ChatOpenAI):
     # All agents route to reviewer when done or end when waiting
     builder.add_conditional_edges("risk_agent", risk_agent.router, {
         "reviewer_agent": "reviewer_agent",
-        "risk_agent": "risk_agent",
         "__end__": END
     })
     
@@ -96,7 +92,7 @@ if __name__ == "__main__":
 
     graph = build_graph(llm)
 
-    # Initial state - start fresh with entry agent
+    # Initial state - start with entry agent (normal flow)
     state: AgentState = {
         "messages": [
             {"role": "ai", "content": "Welcome to the AI Robo-Advisor! I'll help you create a personalized investment plan through a structured process."}
@@ -107,6 +103,7 @@ if __name__ == "__main__":
         "intent_to_portfolio": False,
         "intent_to_investment": False,
         "intent_to_trading": False,
+        "entry_greeted": False,
         "portfolio": None,
         "investment": None,
         "trading_requests": None,
@@ -118,7 +115,7 @@ if __name__ == "__main__":
             "portfolio": False,
             "investment": False,
             "trading": False
-        },  # Track if summary has been shown for each phase
+        },
         "status_tracking": {
             "risk": {"done": False, "awaiting_input": False},
             "portfolio": {"done": False, "awaiting_input": False},

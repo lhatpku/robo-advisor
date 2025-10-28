@@ -2,6 +2,20 @@
 Reviewer Agent Prompts
 """
 
+from pydantic import BaseModel, Field
+from typing import Literal
+
+
+class ReviewerIntent(BaseModel):
+    """Intent classification for reviewer agent user input."""
+    action: Literal[
+        "validate",        # Normal validation flow (from proceed after completing a phase)
+        "start_over",      # User wants to start over
+        "finish",          # User wants to finish
+        "unknown"          # Unclear intent
+    ] = "unknown"
+
+
 REVIEWER_SYSTEM_PROMPT = """You are a Reviewer Agent responsible for validating completion of each phase and managing the overall flow.
 
 Your responsibilities:
@@ -48,3 +62,53 @@ Congratulations! You have successfully completed all phases of the robo-advisor 
 ✅ **Trading Requests** - Ready-to-execute trading orders
 
 Your personalized investment plan is now ready! You can review any phase or proceed with execution."""
+
+
+# Intent classification prompt
+INTENT_CLASSIFICATION_PROMPT = """
+You are a reviewer assistant. Classify the user's intent from their input.
+
+User input: "{user_input}"
+
+Available actions:
+- validate: Normal validation flow (when user just completed a phase and reviewer needs to validate)
+- start_over: User wants to start fresh with a new portfolio (e.g., "start over", "new portfolio", "reset", "restart")
+- finish: User wants to finish/complete the session (e.g., "finish", "done", "complete", "thank you", "exit")
+- unknown: Intent is unclear or not related to reviewer actions
+
+Examples:
+- "start over" -> action: start_over
+- "new portfolio" -> action: start_over
+- "reset" -> action: start_over
+- "finish" -> action: finish
+- "done" -> action: finish
+- "thank you" -> action: finish
+- "exit" -> action: finish
+- "hello" -> action: unknown
+- "" -> action: validate (empty or no input means normal validation)
+"""
+
+
+class ReviewerMessages:
+    """Reviewer agent system messages and responses."""
+    
+    @staticmethod
+    def final_summary_with_options() -> str:
+        """Final summary message with next step options."""
+        return """🎉 **Portfolio Planning Complete!**
+
+Your personalized investment plan is ready. All phases have been successfully completed.
+
+**What would you like to do next?**
+• **Start over** - Create a new portfolio from scratch
+• **Finish** - Complete the session and exit"""
+    
+    @staticmethod
+    def thank_you_message() -> str:
+        """Thank you message when user finishes."""
+        return "Thank you for using the Robo-Advisor! Your personalized investment plan has been created and is ready for execution."
+    
+    @staticmethod
+    def start_over_message() -> str:
+        """Message when starting over."""
+        return "Great! Let's start fresh with a new portfolio. How can I assist you today?"

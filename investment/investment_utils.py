@@ -8,6 +8,7 @@ separated from the main agent logic for better organization and reusability.
 from typing import Dict, Any, List, Optional
 from langchain_openai import ChatOpenAI
 from investment.fund_analyzer import FundAnalyzer
+import yfinance as yf
 from investment.config import (
     get_fund_options, 
     get_selection_criteria, 
@@ -77,9 +78,14 @@ class InvestmentUtils:
                 else:
                     # Use fund analyzer to select best fund for this asset class with chosen criteria
                     selected_fund = self.select_best_fund_for_asset_class(asset_class, criteria)
+                    
+                    # Fetch current price using yfinance
+                    current_price = self._fetch_current_price(selected_fund["ticker"])
+                    
                     investment[asset_class] = {
                         "weight": weight,
                         "ticker": selected_fund["ticker"],
+                        "price": current_price,  # Add current price
                         "analysis": selected_fund.get("analysis", {}),
                         "selection_reason": selected_fund.get("reason", "Default selection"),
                         "criteria_used": criteria
@@ -407,3 +413,32 @@ class InvestmentUtils:
             
         except Exception as e:
             return InvestmentMessages.fund_analysis_error(ticker, str(e))
+    
+    def _fetch_current_price(self, ticker: str) -> float:
+        """
+        Fetch the current/latest close price for a ticker using yfinance.
+        
+        Args:
+            ticker: Fund ticker symbol (e.g., 'VUG', 'SPY')
+            
+        Returns:
+            Current price as float. Returns None if fetch fails.
+        """
+        try:
+            # Fetch ticker data
+            fund = yf.Ticker(ticker)
+            
+            # Get latest close price (last trading day)
+            hist = fund.history(period="1d")
+            if not hist.empty:
+                price = float(hist['Close'].iloc[-1])
+                return price
+            else:
+                # Fallback: try to get current price from info
+                info = fund.info
+                price = info.get('regularMarketPrice') or info.get('currentPrice')
+                return float(price) if price else None
+                
+        except Exception as e:
+            print(f"Error fetching price for {ticker}: {e}")
+            return None

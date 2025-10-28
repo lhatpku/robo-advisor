@@ -205,7 +205,7 @@ def display_risk_assessment(state: AgentState):
             
             # Create a simple bar chart for risk allocation
             fig = go.Figure(data=[
-                go.Bar(x=['Equity', 'Bonds'], y=[equity, bond], 
+                go.Bar(name='', x=['Equity', 'Bonds'], y=[equity, bond], 
                       marker_color=['#2ecc71', '#3498db'])
             ])
             fig.update_layout(
@@ -214,7 +214,7 @@ def display_risk_assessment(state: AgentState):
                 height=300,
                 showlegend=False
             )
-            st.plotly_chart(fig, use_container_width=True)
+            st.plotly_chart(fig, config={'displayModeBar': False}, width='stretch')
         
         with col2:
             st.markdown("**Allocation Details:**")
@@ -254,20 +254,20 @@ def display_portfolio(state: AgentState):
                 labels = list(weights.keys())
                 values = list(weights.values())
                 
-                fig = go.Figure(data=[go.Pie(labels=labels, values=values, hole=0.3)])
+                fig = go.Figure(data=[go.Pie(name='', labels=labels, values=values, hole=0.3)])
                 fig.update_layout(
                     title="Portfolio Allocation",
                     height=400,
                     showlegend=True
                 )
-                st.plotly_chart(fig, use_container_width=True)
+                st.plotly_chart(fig, config={'displayModeBar': False}, width='stretch')
             
             with col2:
                 # Display portfolio table
                 st.markdown("**Allocation Details:**")
                 df = pd.DataFrame(list(weights.items()), columns=['Asset Class', 'Weight'])
                 df['Weight'] = df['Weight'].apply(lambda x: f"{x:.1%}")
-                st.dataframe(df, use_container_width=True, hide_index=True)
+                st.dataframe(df, width='stretch', hide_index=True)
                 
                 # Display portfolio parameters if available
                 if "lambda" in portfolio:
@@ -303,7 +303,7 @@ def display_investment(state: AgentState):
         if table_data:
             # Display the main table
             df = pd.DataFrame(table_data)
-            st.dataframe(df, use_container_width=True, hide_index=True)
+            st.dataframe(df, width='stretch', hide_index=True)
             
             # Display additional details in expandable sections
             st.markdown("**Detailed Fund Information:**")
@@ -340,17 +340,17 @@ def display_trading_requests(state: AgentState):
             for req in requests:
                 if isinstance(req, dict):
                     df_data.append({
-                        "Action": req.get("action", "N/A"),
-                        "Symbol": req.get("symbol", "N/A"),
-                        "Quantity": req.get("quantity", "N/A"),
-                        "Price": req.get("price", "N/A"),
-                        "Value": req.get("value", "N/A"),
-                        "Reason": req.get("reason", "N/A")
+                        "Side": req.get("Side", req.get("side", "N/A")),
+                        "Ticker": req.get("Ticker", req.get("ticker", "N/A")),
+                        "Shares": req.get("Shares", req.get("shares", "N/A")),
+                        "Price": f"${req.get('Price', req.get('price', 0)):.2f}",
+                        "Proceeds": f"${req.get('Proceeds', req.get('proceeds', 0)):.2f}",
+                        "Realized Gain": f"${req.get('RealizedGain', req.get('realized_gain', 0)):.2f}"
                     })
             
             if df_data:
                 df = pd.DataFrame(df_data)
-                st.dataframe(df, use_container_width=True, hide_index=True)
+                st.dataframe(df, width='stretch', hide_index=True)
         
         # Display summary information
         if "summary" in trading_requests:
@@ -455,7 +455,7 @@ def main():
     # Sidebar with reset button
     with st.sidebar:
         st.markdown("### Controls")
-        if st.button("🔄 Reset Application", type="primary", use_container_width=True):
+        if st.button("🔄 Reset Application", type="primary", width='stretch'):
             reset_app()
         
         st.markdown("### Current Status")
@@ -475,13 +475,27 @@ def main():
         st.session_state.initialized = True
         st.rerun()
     
-    # Main content area
-    col1, col2 = st.columns([2, 1])
+    # Main content area - side by side layout
+    col1, col2 = st.columns([1, 1])
     
     with col1:
-        # Message input
+        # Chat header
         st.markdown("### 💬 Chat with the Robo-Advisor")
         
+        # Display current AI response FIRST (above input box)
+        messages = st.session_state.state.get("messages", [])
+        if messages:
+            last_ai_message = None
+            for message in reversed(messages):
+                if message.get("role") == "ai":
+                    last_ai_message = message
+                    break
+            
+            if last_ai_message:
+                st.markdown("### 🤖 AI Assistant")
+                st.markdown(last_ai_message["content"])
+        
+        # Message input BELOW the AI response
         # Use a form to handle input properly
         with st.form("chat_form", clear_on_submit=True):
             user_input = st.text_input(
@@ -502,34 +516,22 @@ def main():
                 # Rerun to refresh the UI
                 st.rerun()
         
-        # Display current AI response
-        messages = st.session_state.state.get("messages", [])
-        if messages:
-            last_ai_message = None
-            for message in reversed(messages):
-                if message.get("role") == "ai":
-                    last_ai_message = message
-                    break
-            
-            if last_ai_message:
-                st.markdown("### 🤖 AI Response")
-                st.markdown(last_ai_message["content"])
+        # Display status tracking below the input
+        display_status_tracking(st.session_state.state)
+        
+        # Display messages in collapsible section
+        st.markdown("---")
+        display_messages(st.session_state.state)
     
     with col2:
-        # Display status tracking
-        display_status_tracking(st.session_state.state)
-    
-    # Main content sections
-    st.markdown("---")
-    
-    # Display all sections based on available data
-    display_risk_assessment(st.session_state.state)
-    display_portfolio(st.session_state.state)
-    display_investment(st.session_state.state)
-    display_trading_requests(st.session_state.state)
-    
-    # Display messages in collapsible section
-    display_messages(st.session_state.state)
+        # Display all data sections (charts and tables)
+        display_risk_assessment(st.session_state.state)
+        st.markdown("---")
+        display_portfolio(st.session_state.state)
+        st.markdown("---")
+        display_investment(st.session_state.state)
+        st.markdown("---")
+        display_trading_requests(st.session_state.state)
 
 if __name__ == "__main__":
     main()

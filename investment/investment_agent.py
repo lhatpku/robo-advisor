@@ -198,10 +198,7 @@ class InvestmentAgent:
         elif intent.action == "proceed":
             if state.get("portfolio") and state.get("investment"):
                 self._set_status(state, "investment", done=True, awaiting_input=False)
-                # state["messages"].append({
-                #     "role": "ai",
-                #     "content": InvestmentMessages.investment_ready()
-                # })
+
                 return state
             else:
                 state["messages"].append({
