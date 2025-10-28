@@ -114,25 +114,6 @@ The app will open in your browser at `http://localhost:8501`
 ```bash
 python app.py
 ```
-
-#### Option C: Gradio Interface (Legacy)
-```bash
-python gradio_app.py
-```
-
-### 4. Deploy to Streamlit Cloud
-
-For production deployment, see the [Deployment Guide](DEPLOYMENT.md) for detailed instructions.
-
-**Quick Deploy Steps:**
-1. Push your code to GitHub
-2. Go to [share.streamlit.io](https://share.streamlit.io)
-3. Connect your repository
-4. Set your OpenAI API key in secrets
-5. Deploy!
-
-Your app will be live at `https://your-username-robo-advisor.streamlit.app`
-
 ---
 
 ## 🎨 Streamlit Web Interface Features
@@ -425,14 +406,6 @@ Your app will be live at `https://your-username-robo-advisor.streamlit.app`
 3. **Add custodian integration** for trade execution
 4. **Implement portfolio monitoring** and rebalancing triggers
 
-### Future Enhancements
-1. **ESG and sustainability** criteria
-2. **Factor models** for better risk attribution
-3. **Currency hedging** for international assets
-4. **Tax-loss harvesting** optimization
-5. **Multi-account management** and aggregation
-6. **Performance attribution** and reporting
-
 ---
 
 ## 🛠 Developer Notes
@@ -523,8 +496,6 @@ python test/userflowtesting/test_trading_completion.py
 - ✅ **Fund Analyzer**: Fund data retrieval and analysis
 - ✅ **Rebalancer**: Tax-aware rebalancing logic
 - ✅ **User Flows**: Complete end-to-end workflows from risk assessment to trading
-
-**Note**: Tests may show Unicode encoding warnings on Windows - this is a display issue and doesn't affect functionality.
 
 ---
 
