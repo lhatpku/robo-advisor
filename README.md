@@ -145,14 +145,17 @@ python app.py
 ## 🧠 Agent Behaviors
 
 ### Entry Agent
-- Initializes with a greeting and clear user choices
-- Routes users to appropriate agents based on their intent
-- Routes dynamically:
-  - → **Risk Agent** for any risk-related requests (equity setting or guidance)
-  - → **Portfolio Agent** if ready to invest
-  - → **Investment Agent** after portfolio optimization
-  - → **Trading Agent** after fund selection
-- Always preserves existing state when moving forward
+- **Central orchestrator** for the entire user flow
+- Shows welcome message and phase summaries for each completed stage
+- Manages user intent classification (proceed, learn_more)
+- Routes to specific agents based on intent flags:
+  - → **Risk Agent** when `intent_to_risk=True`
+  - → **Portfolio Agent** when `intent_to_portfolio=True`
+  - → **Investment Agent** when `intent_to_investment=True`
+  - → **Trading Agent** when `intent_to_trading=True`
+  - → **Reviewer Agent** when reviewer is awaiting input
+- Uses LLM structured output for intent classification
+- Provides phase summaries before transitioning to next phase
 
 ### Risk Agent
 - **Handles all risk-related functionality** including:
@@ -209,11 +212,14 @@ python app.py
   ```
 
 ### Reviewer Agent ✅
-- **Central orchestrator** that manages flow between all agents
-- Reviews completed phases and provides recommendations
-- Handles routing decisions based on user progress
-- Provides final completion options and next steps
-- Manages the overall conversation flow and state transitions
+- **Validates completion** of all phases
+- Updates `next_phase` field to guide Entry Agent routing
+- Shows final summary when all phases are complete
+- Handles user options:
+  - *"start over"* → Resets all state and begins fresh flow
+  - *"finish"* → Shows thank you message and ends session
+- Routes back to **Entry Agent** (never directly to other agents)
+- Uses LLM structured output for intent classification
 
 ---
 
@@ -225,54 +231,82 @@ python app.py
 └──────────────┬────────────────┘
                ▼
         Entry Agent
-         │ greet + choices
+         │ Show welcome & phase summary
+         │ Orchestrate flow based on intent
          ▼
- ┌───────────────────────────────┐
- │ "set equity 0.6" → Risk Agent │
- │ "use guidance" → Risk Agent   │
- │ "proceed" → Portfolio Agent  │
- └───────────────────────────────┘
-               ▼
+     User says "proceed"
+         ▼
+        Entry Agent
+         │ Sets intent_to_risk=True
+         │ Routes to Risk Agent
+         ▼
         Risk Agent
-         │ handles equity setting OR
-         │ 7-question questionnaire
-         │ computes 60% / 40%
-         │ sets done=True
+         │ Presents two options:
+         │ 1) Set equity directly ("set equity to 0.6")
+         │ 2) Use guidance (7-question questionnaire)
+         │ User selects option
+         │ Computes equity/bond allocation
+         │ Sets done=True, routes to Reviewer
          ▼
      Reviewer Agent
-         │ reviews progress
-         │ routes to Portfolio
+         │ Validates risk completion
+         │ Updates next_phase="portfolio"
+         │ Routes to Entry Agent
+         ▼
+        Entry Agent
+         │ Shows portfolio phase summary
+         │ User says "proceed"
+         │ Sets intent_to_portfolio=True
+         │ Routes to Portfolio Agent
          ▼
      Portfolio Agent
-         │ asks λ & cash reserve
-         │ runs mean-variance optimization
-         │ outputs asset-class portfolio
-         │ sets done=True
+         │ Asks λ & cash reserve parameters
+         │ Runs mean-variance optimization
+         │ Outputs asset-class portfolio
+         │ Sets done=True, routes to Reviewer
          ▼
      Reviewer Agent
-         │ reviews progress
-         │ routes to Investment
+         │ Validates portfolio completion
+         │ Updates next_phase="investment"
+         │ Routes to Entry Agent
+         ▼
+        Entry Agent
+         │ Shows investment phase summary
+         │ User says "proceed"
+         │ Sets intent_to_investment=True
+         │ Routes to Investment Agent
          ▼
      Investment Agent
-         │ presents fund selection criteria
-         │ analyzes funds via Yahoo Finance
-         │ allows review/edit of selections
-         │ outputs investment portfolio
-         │ sets done=True when user says "proceed"
+         │ Presents fund selection criteria
+         │ Analyzes funds via Yahoo Finance
+         │ Allows review/edit of selections
+         │ Outputs investment portfolio
+         │ Sets done=True when user says "proceed"
+         │ Routes to Reviewer
          ▼
      Reviewer Agent
-         │ reviews progress
-         │ routes to Trading
+         │ Validates investment completion
+         │ Updates next_phase="trading"
+         │ Routes to Entry Agent
+         ▼
+        Entry Agent
+         │ Shows trading phase summary
+         │ User says "proceed"
+         │ Sets intent_to_trading=True
+         │ Routes to Trading Agent
          ▼
      Trading Agent
-         │ shows demo scenarios
-         │ generates trading requests
-         │ outputs simple trading table
-         │ sets done=True
+         │ Shows demo scenarios
+         │ User selects scenario
+         │ Generates trading requests
+         │ Outputs trading table
+         │ Sets done=True, routes to Reviewer
          ▼
      Reviewer Agent
-         │ final review and completion
-         │ provides next steps
+         │ Validates all phases complete
+         │ Shows final summary with options:
+         │   • "start over" → Reset & restart
+         │   • "finish" → Complete session
          ▼
       (Ready for execution)
 ```
@@ -281,22 +315,25 @@ python app.py
 
 ## 🧪 Example Complete Flow
 
-### Option A: Direct Equity Setting
-> **User:** set equity 0.6  
-> **AI:** Perfect! I've set your allocation to **60% equity / 40% bonds**...  
-> *(Risk Agent directly sets equity allocation)*  
+### Start: Entry Agent
+> **AI (Entry):** Welcome! Let's start with risk assessment...  
 > **User:** proceed  
-> *(Reviewer Agent routes to Portfolio Agent)*
 
-### Option B: Risk Guidance
+### Risk Phase: Risk Agent
+> **AI (Risk):** Choose: 1) Set equity directly (e.g., "set equity to 0.6") or 2) Use guidance (questionnaire)  
 > **User:** use guidance  
-> **AI:** I'll help you determine your optimal asset allocation through a risk assessment...  
-> *(Risk Agent runs full 7-question flow → recommends 60% equity / 40% bonds)*  
+> **AI (Risk):** [Shows 7-question questionnaire]  
+> **User:** [Answers questions]  
+> **AI (Risk):** Your allocation: 60% equity / 40% bonds  
 > **User:** proceed  
-> *(Reviewer Agent routes to Portfolio Agent)*  
-> **AI:** Defaults λ = 1.0, cash = 0.05 — say "set lambda to 1 and cash to 0.03 run"  
-> **User:** set lambda as 1 and cash as 0.03 run  
-> *(Optimizer builds portfolio)*  
+> *(Risk Agent routes to Reviewer, then Entry shows portfolio summary)*
+
+### Portfolio Phase: Portfolio Agent
+> **AI (Entry):** Portfolio Construction phase...  
+> **User:** proceed  
+> **AI (Portfolio):** Defaults λ = 1.0, cash = 0.05...  
+> **User:** set lambda to 1 and cash to 0.03 run  
+> **AI (Portfolio):** [Optimization results]
 
 | Asset Class | Weight |
 |--------------|-------:|
@@ -310,8 +347,8 @@ python app.py
 | **Total** | **100%** |
 
 > **User:** proceed  
-> *(Reviewer Agent routes to Investment Agent)*  
-> **AI:** Choose your fund selection criteria: Balanced, Low Cost, High Performance, or Low Risk  
+> *(Entry shows investment summary, then routes to Investment Agent)*  
+> **AI (Investment):** Choose fund selection criteria: Balanced, Low Cost, High Performance, or Low Risk  
 > **User:** balanced  
 > *(Fund analysis and selection)*  
 
@@ -324,8 +361,8 @@ python app.py
 | Cash | 3.00% | sweep_cash | Sweep Account |
 
 > **User:** proceed  
-> *(Reviewer Agent routes to Trading Agent)*  
-> **AI:** Welcome to the Trading Module! Select a demo scenario (1-6)...  
+> *(Entry shows trading summary, then routes to Trading Agent)*  
+> **AI (Trading):** Select a demo scenario (1-6)...  
 > **User:** 1  
 > *(Trading requests generated)*  
 
@@ -339,6 +376,19 @@ python app.py
 **Buy Orders:** 2  
 **Sell Orders:** 1  
 **Net Cash Flow:** $15,000
+
+> **User:** proceed  
+> *(Reviewer validates all phases and shows final summary)*
+
+### Final Completion: Reviewer Agent
+> **AI (Reviewer):** Portfolio Planning Complete! Your plan is ready.  
+> **Options:** Start over | Finish  
+> **User:** finish  
+> **AI (Reviewer):** Thank you for using our robo-advisor!
+
+---
+
+**See [USER_FLOW.md](USER_FLOW.md) for detailed flow diagram and routing logic.**
 
 ---
 
