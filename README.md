@@ -13,12 +13,13 @@ portfolio optimization, fund selection, trading execution workflows, and a moder
 User
  └──> Entry Agent (ChatOpenAI)
        ├─ natural conversation
-       ├─ detects user intent (risk, portfolio, investment, trading)
-       ├─ directs to:
+       ├─ manages phase summaries and user intent
+       ├─ routes based on intent flags:
        │    ├─ Risk Agent  → equity setting OR questionnaire-based guidance
        │    ├─ Portfolio Agent → mean-variance optimizer
        │    ├─ Investment Agent → fund selection & analysis
-       │    └─ Trading Agent → executable trading requests
+       │    ├─ Trading Agent → executable trading requests
+       │    └─ Reviewer Agent → when awaiting final input
        ↓
  ├──> Risk Agent (ChatOpenAI + Tool)
  │      ├─ handles direct equity setting commands
@@ -47,11 +48,12 @@ User
  │      ├─ outputs **simple trading table** (ticker, action, price, shares)
  │      └─ provides execution summary
  │
- └──> Reviewer Agent (ChatOpenAI)
-        ├─ reviews completed phases and user progress
-        ├─ provides final recommendations and next steps
-        ├─ orchestrates flow between agents
-        └─ handles completion and routing decisions
+└──> Reviewer Agent (ChatOpenAI)
+       ├─ validates completion of all phases
+       ├─ shows final summary when all complete
+       ├─ handles "start over" and "finish" options
+       ├─ routes back to Entry Agent for next phase
+       └─ manages phase transitions and state updates
 ```
 
 ---
@@ -68,11 +70,12 @@ User
 | **Investment** | `investment/investment_agent.py` | Fund selection and analysis |
 | | `investment/fund_analyzer.py` | Yahoo Finance API integration |
 | **Trading** | `trading/trading_agent.py` | Trading request generation |
-| | `trading/portfolio_trading.py` | Portfolio-to-trades conversion |
+| | `trading/trading_utils.py` | Trading utility functions |
 | | `trading/rebalance.py` | Tax-aware rebalancing optimization |
 | | `trading/config.py` | Configuration and assumptions |
-| | `trading/demo_scenarios.json` | Demo trading scenarios |
-| **Reviewer** | `reviewer_agent.py` | Final review, recommendations, and flow orchestration |
+| | `trading/trading_scenarios.py` | Demo trading scenarios |
+| **Reviewer** | `reviewer/reviewer_agent.py` | Final review, recommendations, and flow orchestration |
+| | `reviewer/reviewer_utils.py` | Reviewer utility functions |
 | **UI** | `streamlit_app.py` | Modern web interface with real-time visualization |
 | **Core** | `state.py` | Shared TypedDict state |
 | | `app.py` | Main LangGraph orchestration |
@@ -483,17 +486,43 @@ Your app will be live at `https://your-username-robo-advisor.streamlit.app`
 
 ## 🧪 Testing
 
-The repository includes comprehensive user flow testing:
+The repository includes comprehensive testing coverage:
+
+### Unit Tests
+Test core functions independently:
+
+```bash
+# Run all unit tests
+python test/unittesting/test_suite.py
+
+# Run individual unit tests
+python test/unittesting/test_risk_manager.py
+python test/unittesting/test_portfolio_manager.py
+python test/unittesting/test_fund_analyzer.py
+python test/unittesting/test_rebalancer.py
+```
+
+### User Flow Tests
+Test end-to-end user flows:
 
 ```bash
 # Run all user flow tests
-python userflowtesting/test_suite.py
+python test/userflowtesting/test_suite.py
 
 # Run individual tests
-python userflowtesting/test_comprehensive_risk_flow.py
-python userflowtesting/test_portfolio_to_investment.py
-python userflowtesting/test_simple_completion.py
+python test/userflowtesting/test_comprehensive_risk_flow.py
+python test/userflowtesting/test_portfolio_to_investment.py
+python test/userflowtesting/test_simple_completion.py
+python test/userflowtesting/test_start_over.py
+python test/userflowtesting/test_trading_completion.py
 ```
+
+**Test Coverage:**
+- ✅ **Risk Manager**: Question management, risk allocation calculation
+- ✅ **Portfolio Manager**: Mean-variance optimization, parameter setting
+- ✅ **Fund Analyzer**: Fund data retrieval and analysis
+- ✅ **Rebalancer**: Tax-aware rebalancing logic
+- ✅ **User Flows**: Complete end-to-end workflows from risk assessment to trading
 
 **Note**: Tests may show Unicode encoding warnings on Windows - this is a display issue and doesn't affect functionality.
 
