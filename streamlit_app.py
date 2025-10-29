@@ -499,7 +499,7 @@ def main():
         
         # Message input BELOW the AI response
         # Use a form to handle input properly
-        with st.form("chat_form", clear_on_submit=False):
+        with st.form("chat_form", clear_on_submit=True):
             user_input = st.text_input(
                 "Type your message here:",
                 placeholder="Ask about risk assessment, portfolio optimization, or investment selection...",
@@ -523,19 +523,12 @@ def main():
             if not is_safe:
                 # Store warning in session state instead of adding AI message
                 st.session_state.input_warning = f"⚠️ {error_msg}\n\nPlease try rephrasing your message."
-                # Clear the input field
-                if 'user_input' in st.session_state:
-                    del st.session_state.user_input
                 st.rerun()
                 return
             
             # Clear warning if input is safe
             if 'input_warning' in st.session_state:
                 del st.session_state.input_warning
-            
-            # Clear the input field after successful submission
-            if 'user_input' in st.session_state:
-                del st.session_state.user_input
             
             # Add user message to state
             st.session_state.state["messages"].append({"role": "user", "content": user_input})
