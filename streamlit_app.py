@@ -14,22 +14,7 @@ from langchain_openai import ChatOpenAI
 # Load environment variables
 load_dotenv()
 
-# Install validators BEFORE importing get_guard (for Streamlit Cloud deployment)
-if not os.path.exists(".guards_setup_complete"):
-    try:
-        import subprocess
-        import sys
-        subprocess.check_call([
-            sys.executable, "-m", "guardrails", "hub", "install", 
-            "hub://guardrails/unusual_prompt"
-        ], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-        # Create marker file to indicate setup is complete
-        with open(".guards_setup_complete", "w") as f:
-            f.write("complete")
-    except Exception:
-        pass  # Continue even if installation fails (will try again next time)
-
-# Now import get_guard (after validators are installed)
+# Import guard (now using lightweight regex-based validation)
 from guards import get_guard
 
 # Configuration function
@@ -514,7 +499,7 @@ def main():
         
         # Message input BELOW the AI response
         # Use a form to handle input properly
-        with st.form("chat_form", clear_on_submit=True):
+        with st.form("chat_form", clear_on_submit=False):
             user_input = st.text_input(
                 "Type your message here:",
                 placeholder="Ask about risk assessment, portfolio optimization, or investment selection...",
@@ -522,31 +507,44 @@ def main():
             )
             
             submitted = st.form_submit_button("Send", type="primary")
+        
+        # Display input warning below the form if there is one
+        if 'input_warning' in st.session_state:
+            st.warning(st.session_state.input_warning)
+        
+        # Validation and processing (outside the form)
+        if submitted and user_input:
+            # Initialize guard if not already done
+            if 'guard' not in st.session_state:
+                st.session_state.guard = get_guard()
             
-            if submitted and user_input:
-                # Initialize guard if not already done
-                if 'guard' not in st.session_state:
-                    st.session_state.guard = get_guard()
-                
-                # Validate user input for prompt injection attempts
-                is_safe, error_msg = st.session_state.guard.validate(user_input)
-                if not is_safe:
-                    # Add AI message to chat explaining the issue
-                    st.session_state.state["messages"].append({
-                        "role": "ai",
-                        "content": f"⚠️ {error_msg}\n\nPlease try rephrasing your message in a different way."
-                    })
-                    st.rerun()
-                    return
-                
-                # Add user message to state
-                st.session_state.state["messages"].append({"role": "user", "content": user_input})
-                
-                # Process through the graph
-                st.session_state.state = st.session_state.graph.invoke(st.session_state.state)
-                
-                # Rerun to refresh the UI
+            # Validate user input for prompt injection attempts
+            is_safe, error_msg = st.session_state.guard.validate(user_input)
+            if not is_safe:
+                # Store warning in session state instead of adding AI message
+                st.session_state.input_warning = f"⚠️ {error_msg}\n\nPlease try rephrasing your message."
+                # Clear the input field
+                if 'user_input' in st.session_state:
+                    del st.session_state.user_input
                 st.rerun()
+                return
+            
+            # Clear warning if input is safe
+            if 'input_warning' in st.session_state:
+                del st.session_state.input_warning
+            
+            # Clear the input field after successful submission
+            if 'user_input' in st.session_state:
+                del st.session_state.user_input
+            
+            # Add user message to state
+            st.session_state.state["messages"].append({"role": "user", "content": user_input})
+            
+            # Process through the graph
+            st.session_state.state = st.session_state.graph.invoke(st.session_state.state)
+            
+            # Rerun to refresh the UI
+            st.rerun()
         
         # Display status tracking below the input
         display_status_tracking(st.session_state.state)

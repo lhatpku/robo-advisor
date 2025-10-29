@@ -2,7 +2,6 @@
 from __future__ import annotations
 import os
 from dotenv import load_dotenv
-from guards import get_guard
 
 from langchain_openai import ChatOpenAI
 from langgraph.graph import StateGraph, END
@@ -83,9 +82,9 @@ def build_graph(llm: ChatOpenAI):
 # Run (simple REPL)
 # ---------------------------
 if __name__ == "__main__":
+
     load_dotenv()  # expects OPENAI_API_KEY; optional OPENAI_MODEL / OPENAI_TEMPERATURE
 
-    # Force JSON output from entry agent to avoid parsing issues.
     llm = ChatOpenAI(
         model=os.getenv("OPENAI_MODEL", "gpt-4o-mini"),
         temperature=float(os.getenv("OPENAI_TEMPERATURE", "0.2")),
@@ -132,27 +131,9 @@ if __name__ == "__main__":
     if ai_msgs:
         print(ai_msgs[-1]["content"])
 
-    # Get guard instance
-    guard = get_guard()
-    
     # --- normal REPL ---
     while True:
         user_in = input("> ")
-        
-        # Validate user input for prompt injection attempts
-        is_safe, error_msg = guard.validate(user_in)
-        if not is_safe:
-            # Add AI message explaining the issue
-            state["messages"].append({
-                "role": "ai",
-                "content": f"⚠️ {error_msg}\n\nPlease try rephrasing your message in a different way."
-            })
-            # Show the message
-            ai_msgs = [m for m in state["messages"] if m.get("role") == "ai"]
-            if ai_msgs:
-                print(ai_msgs[-1]["content"])
-            continue
-        
         state["messages"].append({"role": "user", "content": user_in})
         state = graph.invoke(state)
         ai_msgs = [m for m in state["messages"] if m.get("role") == "ai"]
