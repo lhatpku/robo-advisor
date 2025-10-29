@@ -547,14 +547,18 @@ def main():
         display_messages(st.session_state.state)
     
     with col2:
-        # Display all data sections (charts and tables)
-        display_risk_assessment(st.session_state.state)
-        st.markdown("---")
-        display_portfolio(st.session_state.state)
-        st.markdown("---")
-        display_investment(st.session_state.state)
-        st.markdown("---")
-        display_trading_requests(st.session_state.state)
+        # Display all data sections (charts and tables) in collapsible sections
+        with st.expander("📊 Risk Assessment", expanded=True):
+            display_risk_assessment(st.session_state.state)
+        
+        with st.expander("💼 Portfolio Allocation", expanded=True):
+            display_portfolio(st.session_state.state)
+        
+        with st.expander("📈 Investment Selection", expanded=True):
+            display_investment(st.session_state.state)
+        
+        with st.expander("💰 Trading Requests", expanded=True):
+            display_trading_requests(st.session_state.state)
 
 if __name__ == "__main__":
     main()
