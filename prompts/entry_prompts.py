@@ -1,17 +1,24 @@
 """
-Entry agent prompts and messages.
+Entry Agent Prompts
 """
 
+from typing import Optional, Literal, Dict
 from pydantic import BaseModel
-from typing import Optional, Literal
 
-# Intent Classification Model
+# ──────────────────────────────────────────────────────────────
+# Intent schema for structured LLM output
+# ──────────────────────────────────────────────────────────────
 class EntryIntent(BaseModel):
     """Structured output for entry agent intent classification."""
-    action: Literal["proceed", "learn_more"]  # Only these two options
-    question: Optional[str] = None  # Structured question about what they want to learn
+    # The user's intent can only be to proceed or to learn more
+    action: Literal["proceed", "learn_more"]
 
-# Intent Classification Prompt
+    # Optional structured question (used only for 'learn_more')
+    question: Optional[str] = None
+
+
+# Prompt template for classifying user intent
+
 INTENT_CLASSIFICATION_PROMPT = """
 You are an investment planning assistant. Classify the user's intent and extract relevant information.
 
@@ -23,121 +30,128 @@ You must respond with a JSON object matching this exact structure:
     "question": "string or null"
 }}
 
-Available actions and their expected outputs:
+Definitions:
+- "proceed": the user wants to move forward in the investment planning process.
+- "learn_more": the user wants an explanation or clarification.
 
-**proceed** - User wants to continue to the next phase
-- Examples: "yes", "proceed", "continue", "next", "go ahead", "start", "begin", "ok", "ready"
-- Output: {{"action": "proceed", "question": null}}
+Examples:
+1️⃣ "yes", "next", "start", "continue" → {{"action": "proceed", "question": null}}
+2️⃣ "what is portfolio construction?" → {{"action": "learn_more", "question": "What is portfolio construction?"}}
+3️⃣ "can you explain the risk phase?" → {{"action": "learn_more", "question": "Explain the risk phase"}}
+4️⃣ "i’m ready" → {{"action": "proceed", "question": null}}
+5️⃣ "tell me more about fund selection" → {{"action": "learn_more", "question": "Tell me more about fund selection"}}
 
-**learn_more** - User wants to learn more about something
-- Examples: "what is risk assessment", "tell me about portfolio", "explain investment selection", "how does trading work", "what happens in risk phase", "why do I need portfolio optimization"
-- Output: {{"action": "learn_more", "question": "What is risk assessment and how does it work?"}}
-- Convert user's question into a clear, structured question about the investment process
-
-**Context Rules:**
-1. If user input indicates they want to continue or move forward, use proceed
-2. If user input asks questions about specific phases or wants explanations, use learn_more
-3. Use null for question when action is proceed
-4. Convert user's question into a clear, structured question when action is learn_more
-5. Make questions specific and actionable (e.g., "What is risk assessment?" not "tell me about risk")
-
-Respond with ONLY the JSON object, no other text.
+Return ONLY valid JSON — no commentary, no explanations.
 """
 
-# Entry Messages Class
+
+# ──────────────────────────────────────────────────────────────
+# Class for all entry-related AI messages
+# ──────────────────────────────────────────────────────────────
+
 class EntryMessages:
-    """Entry agent system messages and responses."""
-    
+    """Defines all text templates for entry agent"""
+
     @staticmethod
     def welcome_message() -> str:
-        """Welcome message for new users."""
-        return "Welcome to the AI Robo-Advisor! I'll help you create a personalized investment plan through a structured process."
-    
+        return "Welcome to the AI Robo-Advisor, I will help you create a personalized investment plan"
+
     @staticmethod
     def next_phase_intro(phase: str) -> str:
-        """Introduction message for the next phase."""
+        """
+        explain what is coming into the next phase, dynamically based on the name
+        """
         phase_descriptions = {
             "risk": "Risk Assessment",
-            "portfolio": "Portfolio Construction", 
+            "portfolio": "Portfolio Construction",
             "investment": "Fund Selection",
             "trading": "Trading Implementation"
         }
-        
+
         phase_name = phase_descriptions.get(phase, phase.title())
-        
-        return f"Great! Let's move to **{phase_name}**. This phase will help you {'assess your risk tolerance and determine your asset allocation' if phase == 'risk' else 'build an optimized portfolio based on your risk profile' if phase == 'portfolio' else 'select specific funds and ETFs for your portfolio' if phase == 'investment' else 'generate trading requests to implement your investment plan'}."
-    
+
+        return (f"Great! Let's move to **{phase_name}**. This phase will help you"
+                f"{'assess your risk tolerance' if phase == 'risk' else 
+                    'build your optimized portfolio' if phase == 'portfolio' else
+                    'select funds and ETFs' if phase == 'investment' else
+                    'generate trading requests'
+                }. ")
+
     @staticmethod
     def phase_explanation(phase: str) -> str:
-        """Detailed explanation of what a phase involves."""
-        explanations = {
-            "risk": """
-**Risk Assessment Phase:**
-• Complete a questionnaire about your investment goals and risk tolerance
-• OR directly set your equity/bond allocation (e.g., 60% stocks, 40% bonds)
-• This determines how aggressive or conservative your portfolio should be
-• Based on your age, income, goals, and risk comfort level
-            """,
-            "portfolio": """
-**Portfolio Construction Phase:**
-• Uses mean-variance optimization to create an optimal asset allocation
-• Considers your risk profile from the previous phase
-• Allocates across different asset classes (large cap, small cap, international, bonds, etc.)
-• Balances risk and return based on modern portfolio theory
-            """,
-            "investment": """
-**Fund Selection Phase:**
-• Converts your asset allocation into specific funds and ETFs
-• Choose selection criteria: Balanced, Low Cost, High Performance, or Low Risk
-• Selects the best funds for each asset class based on your criteria
-• Provides detailed fund analysis and comparison options
-            """,
-            "trading": """
-**Trading Implementation Phase:**
-• Generates specific trading requests to implement your investment plan
-• Considers your account value, current holdings, and tax implications
-• Creates buy/sell orders with exact quantities and prices
-• Handles rebalancing and position adjustments
-            """
+        """Detailed breakdown of each phase, used when user asks questions."""
+        explanations: Dict[str, str] = {
+            "risk": "This phase helps you determine your tolerance for market volatility.",
+            "portfolio": "Here we build your optimized investment portfolio.",
+            "investment": "We select the most suitable funds or ETFs for your profile.",
+            "trading": "We execute your investment plan through simulated or live trades."
         }
-        
-        return explanations.get(phase, f"Information about {phase} phase is not available.")
-    
+        return explanations.get(phase, f"Information about {phase.title()} phase is not available.")
+
     @staticmethod
     def proceed_confirmation(phase: str) -> str:
-        """Confirmation message when user wants to proceed."""
-        return f"Perfect! Let's proceed to the {phase} phase. Type 'yes' or 'proceed' to continue, or ask me about what this phase involves."
-    
+        """Used when AI confirm user's intent to continue"""
+        return (f"Perfect! Let's proceed to the {phase.title()} phase "
+                f"Type 'yes' to continue or ask about this phase")
+
     @staticmethod
     def unclear_intent() -> str:
-        """Message when user intent is unclear."""
-        return "I'm not sure what you'd like to do. You can say 'proceed' to continue to the next phase, or ask me about any specific phase (risk assessment, portfolio construction, fund selection, or trading implementation)."
-    
+        """Fallback message for unrecognized input."""
+        return "I'm not sure what you'd like to do. You can say 'proceed' or ask me about any phase."
+
     @staticmethod
     def phase_complete_message() -> str:
-        """Message when all phases are complete."""
-        return "Congratulations! You've completed all phases of the investment planning process. Your personalized investment plan is ready."
-    
-    # Stage summaries dictionary
+        return "Congratulations! You've completed all phases of the investment planning process."
+
+    @staticmethod
+    def build_augmented_prompt(question: str, context: str) -> str:
+        """
+        Constructs the prompt sent to the LLM for 'learn_more' questions.
+        """
+        context_text = context if context else "No relevant information found."
+        if len(context_text) > 4000:
+            context_text = context_text[:3900] + "\n\n[...context truncated...]"
+
+        return f"""
+            Your task:
+            Answer the user’s question using ONLY the information provided in the context below.
+            Write in a clear, friendly, professional tone suitable for an investor.
+
+            If the context does not contain enough information to answer, respond:
+            "The context does not include enough information to answer this question."
+
+            User question:
+            {question}
+
+            Context:
+            {context_text}
+            """
+
+# ──────────────────────────────────────────────────────────────
+# Stage summaries shown after completing each phase
+# ──────────────────────────────────────────────────────────────
+
     STAGE_SUMMARIES = {
-        
-        "risk": "**Start Risk Assessment** ✅\n\nYour risk profile will be determined based on your investment goals and risk tolerance.",
-        
-        "portfolio": "**Start Portfolio Construction** ✅\n\nYour optimized portfolio allocation will be created using mean-variance optimization.",
-        
-        "investment": "**Start Fund Analysis and Selection ** ✅\n\nYour investment portfolio will be constructed by selecting funds for each asset class.",
-        
-        "trading": "**Start Trading Execution** ✅\n\nYour trading execution will be generated with specific buy/sell orders."
-    }
-    
+            "risk": "**Start Risk Assessment** ✅\n\nWe'll identify your goals and tolerance.",
+            "portfolio": "**Start Portfolio Construction** ✅\n\nWe'll optimize your allocation.",
+            "investment": "**Start Fund Selection** ✅\n\nWe'll pick the best funds for each class.",
+            "trading": "**Start Trading Execution** ✅\n\nWe'll create precise buy/sell requests."
+        }
+
     @staticmethod
     def get_stage_summary(stage: str) -> str:
-        """Get summary for a completed stage."""
-        summary = EntryMessages.STAGE_SUMMARIES.get(stage, f"Stage {stage} completed.")
-        
-        return f"""{summary}
+        """Return summary plus next-step options."""
+        summary = EntryMessages.STAGE_SUMMARIES.get(stage, f"Stage {stage.title()} completed.")
+        return(f"{summary}\n\n"
+               "**What would you like to do next?**\n"
+               "• **Proceed** to the phase\n"
+               "• **Learn more** by asking a question\n")
 
-**What would you like to do next?**
-• **Proceed** to the phase
-• **Learn more** about any phase by asking me questions
-"""
+    @staticmethod
+    def not_enough_info_for_learn_more() -> str:
+        return "Sorry, I don’t have enough information to answer that right now."
+
+    @staticmethod
+    def fallback() -> str:
+        return "Sorry, I couldn’t fetch an explanation for this question."
+
