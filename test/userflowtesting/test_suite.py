@@ -11,17 +11,20 @@ from dotenv import load_dotenv
 # Load environment variables
 load_dotenv()
 
-sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+# Add project root to path
+project_root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+if project_root not in sys.path:
+    sys.path.insert(0, project_root)
 
 # Import individual test modules (only working tests)
-from test_comprehensive_risk_flow import test_comprehensive_risk_flow
-from test_simple_completion import test_simple_completion
-from test_start_over import test_start_over_functionality
-from test_reviewer_final_completion import test_reviewer_final_completion
-from test_portfolio_to_investment import test_portfolio_to_investment
-from test_portfolio_cash_setting import test_portfolio_cash_setting
-from test_portfolio_lambda_setting import test_portfolio_lambda_setting
-from test_portfolio_review import test_portfolio_review
+from test.userflowtesting.test_comprehensive_risk_flow import test_comprehensive_risk_flow
+from test.userflowtesting.test_simple_completion import test_simple_completion
+from test.userflowtesting.test_start_over import test_start_over_functionality
+from test.userflowtesting.test_reviewer_final_completion import test_reviewer_final_completion
+from test.userflowtesting.test_portfolio_to_investment import test_portfolio_to_investment
+from test.userflowtesting.test_portfolio_cash_setting import test_portfolio_cash_setting
+from test.userflowtesting.test_portfolio_lambda_setting import test_portfolio_lambda_setting
+from test.userflowtesting.test_portfolio_review import test_portfolio_review
 
 class UserFlowTestSuite:
     """Test suite for validating user flows in the robo-advisor application."""

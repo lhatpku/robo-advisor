@@ -741,45 +741,161 @@ While input validation is the primary defense, output validation occurs through:
 
 ---
 
-## 🧪 Testing
+## 🧪 Testing & Coverage
 
-The repository includes comprehensive testing coverage:
+The repository includes comprehensive testing with coverage reporting:
 
-### Unit Tests
-Test core functions independently:
+### Test Structure
 
-```bash
-# Run all unit tests
-python test/unittesting/test_suite.py
-
-# Run individual unit tests
-python test/unittesting/test_risk_manager.py
-python test/unittesting/test_portfolio_manager.py
-python test/unittesting/test_fund_analyzer.py
-python test/unittesting/test_rebalancer.py
+```
+test/
+├── unittesting/           # Unit tests for core components
+│   ├── test_risk_manager.py
+│   ├── test_portfolio_manager.py
+│   ├── test_fund_analyzer.py
+│   └── test_rebalancer.py
+└── userflowtesting/       # End-to-end user flow tests
+    ├── test_comprehensive_risk_flow.py
+    ├── test_portfolio_to_investment.py
+    ├── test_simple_completion.py
+    ├── test_start_over.py
+    ├── test_trading_completion.py
+    └── test_suite.py
 ```
 
-### User Flow Tests
-Test end-to-end user flows:
+### Running Tests
+
+#### Using pytest (Recommended)
 
 ```bash
-# Run all user flow tests
+# Run all tests with coverage
+pytest --cov-report=term-missing
+
+# Run only unit tests
+pytest test/unittesting/ --cov-report=term-missing
+
+# Run only user flow tests
+pytest test/userflowtesting/ --cov-report=term-missing
+
+# Run with HTML coverage report
+pytest --cov-report=html --cov-report=term-missing
+# Open htmlcov/index.html in browser
+
+# Run specific test file
+pytest test/userflowtesting/test_comprehensive_risk_flow.py -v
+```
+
+#### Using Python Directly
+
+```bash
+# Run unit test suite
+python test/unittesting/test_suite.py
+
+# Run user flow test suite
 python test/userflowtesting/test_suite.py
 
 # Run individual tests
+python test/unittesting/test_risk_manager.py
 python test/userflowtesting/test_comprehensive_risk_flow.py
-python test/userflowtesting/test_portfolio_to_investment.py
-python test/userflowtesting/test_simple_completion.py
-python test/userflowtesting/test_start_over.py
-python test/userflowtesting/test_trading_completion.py
 ```
 
-**Test Coverage:**
+### Test Coverage Configuration
+
+The project uses `pytest` with `pytest-cov` and `coverage.py` for comprehensive coverage reporting:
+
+#### Configuration Files
+
+- **`.coveragerc`**: Coverage configuration (source files, exclusions, report settings)
+- **`pytest.ini`**: Pytest configuration (test discovery, markers, coverage integration)
+
+#### Coverage Settings
+
+- **Source Files**: All project code (excluding test files, `__pycache__`, `streamlit_app.py`)
+- **Branch Coverage**: Enabled for comprehensive branch analysis
+- **Report Formats**: Terminal (with missing lines), HTML, XML
+- **Exclusions**: Test files, `__init__.py`, example files, migrations
+
+### Coverage Reports
+
+#### Terminal Report
+```bash
+pytest --cov-report=term-missing
+```
+Shows coverage percentage and missing line numbers for each file.
+
+#### HTML Report
+```bash
+pytest --cov-report=html
+```
+Generates interactive HTML report in `htmlcov/` directory. Open `htmlcov/index.html` in your browser for detailed line-by-line coverage.
+
+#### XML Report
+```bash
+pytest --cov-report=xml
+```
+Generates `coverage.xml` for CI/CD integration.
+
+### Test Categories
+
+#### Unit Tests
 - ✅ **Risk Manager**: Question management, risk allocation calculation
 - ✅ **Portfolio Manager**: Mean-variance optimization, parameter setting
 - ✅ **Fund Analyzer**: Fund data retrieval and analysis
 - ✅ **Rebalancer**: Tax-aware rebalancing logic
-- ✅ **User Flows**: Complete end-to-end workflows from risk assessment to trading
+
+#### User Flow Tests (End-to-End)
+- ✅ **Comprehensive Risk Flow**: Complete questionnaire flow with "why" explanations
+- ✅ **Portfolio to Investment**: Phase transitions and data flow
+- ✅ **Simple Completion**: Final completion flow validation
+- ✅ **Start Over**: State reset and flow restart
+- ✅ **Trading Completion**: Trading request generation and validation
+- ✅ **Portfolio Settings**: Cash and lambda parameter configuration
+- ✅ **Portfolio Review**: Review and re-optimization workflows
+
+### Test Markers
+
+Tests are categorized using pytest markers:
+
+- `@pytest.mark.unit`: Unit tests for individual components
+- `@pytest.mark.integration`: Integration tests for component interactions
+- `@pytest.mark.e2e`: End-to-end tests for complete workflows
+- `@pytest.mark.slow`: Tests that take a long time to run
+- `@pytest.mark.api`: Tests that require external API access
+- `@pytest.mark.requires_env`: Tests that require specific environment variables
+
+### Coverage Best Practices
+
+1. **Run Coverage Regularly**: Check coverage before committing changes
+2. **Aim for High Coverage**: Focus on critical paths and business logic
+3. **Review Missing Lines**: Use HTML report to identify untested code paths
+4. **CI/CD Integration**: Coverage reports can be integrated into CI/CD pipelines
+5. **Exclude Appropriate Files**: Test files, `__init__.py`, and UI files are excluded
+
+### Viewing Coverage Reports
+
+After running tests with coverage:
+
+```bash
+# View terminal report (already shown in pytest output)
+pytest --cov-report=term-missing
+
+# View HTML report
+# 1. Run: pytest --cov-report=html
+# 2. Open: htmlcov/index.html in your browser
+
+# View coverage summary
+coverage report
+
+# View coverage summary with missing lines
+coverage report --show-missing
+```
+
+### Coverage Documentation
+
+For detailed coverage setup and usage, see:
+- `test/README_COVERAGE.md`: Comprehensive coverage documentation
+- `.coveragerc`: Coverage configuration details
+- `pytest.ini`: Pytest and coverage integration settings
 
 ---
 

@@ -4,15 +4,19 @@ Unit test suite runner for all core function tests.
 
 import sys
 import os
-sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
+# Add project root to path
+project_root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+if project_root not in sys.path:
+    sys.path.insert(0, project_root)
 
 import unittest
 
-# Import test modules
-from test_risk_manager import TestRiskManager
-from test_portfolio_manager import TestPortfolioManager
-from test_fund_analyzer import TestFundAnalyzer
-from test_rebalancer import TestSoftObjectiveRebalancer
+# Import test modules using relative imports
+from test.unittesting.test_risk_manager import TestRiskManager
+from test.unittesting.test_portfolio_manager import TestPortfolioManager
+from test.unittesting.test_fund_analyzer import TestFundAnalyzer
+from test.unittesting.test_rebalancer import TestSoftObjectiveRebalancer
 
 
 def run_all_tests():

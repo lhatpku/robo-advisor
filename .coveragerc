@@ -1,0 +1,70 @@
+[run]
+# Coverage configuration for robo-advisor project
+
+# Source files to include
+source = .
+
+# Files to omit from coverage
+omit =
+    */tests/*
+    */test/*
+    */__pycache__/*
+    */venv/*
+    */env/*
+    */.venv/*
+    */site-packages/*
+    */node_modules/*
+    setup.py
+    */migrations/*
+    */__init__.py
+    */example*.py
+    streamlit_app.py
+
+# Branch coverage
+branch = True
+
+# Fail under threshold (optional - can be set in CI)
+# fail_under = 80
+
+[report]
+# Report configuration
+
+# Exclude lines from coverage
+exclude_lines =
+    # Have to re-enable the standard pragma
+    pragma: no cover
+
+    # Don't complain about missing debug-only code
+    def __repr__
+    if self.debug
+
+    # Don't complain if tests don't hit defensive assertion code
+    raise AssertionError
+    raise NotImplementedError
+
+    # Don't complain if non-runnable code isn't run
+    if __name__ == .__main__.:
+    if TYPE_CHECKING:
+
+    # Don't complain about abstract methods
+    @abstractmethod
+    @abc.abstractmethod
+
+# Show missing line numbers
+show_missing = True
+
+# Skip empty files
+skip_empty = True
+
+# Sort report by coverage percentage
+sort = Cover
+
+[html]
+# HTML report configuration
+directory = htmlcov
+title = Robo-Advisor Test Coverage Report
+
+[xml]
+# XML report configuration (for CI/CD)
+output = coverage.xml
+

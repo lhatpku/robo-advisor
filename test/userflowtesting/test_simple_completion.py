@@ -7,7 +7,10 @@ load_dotenv()
 
 import sys
 import os
-sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+# Add project root to path
+project_root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+if project_root not in sys.path:
+    sys.path.insert(0, project_root)
 
 from app import build_graph
 from state import AgentState
@@ -68,7 +71,8 @@ def test_simple_completion():
             "investment": {"done": True, "awaiting_input": False},
             "trading": {"done": True, "awaiting_input": False},
             "reviewer": {"done": False, "awaiting_input": False}
-        }
+        },
+        "correlation_id": None
     }
     
     print("Initial state:")
@@ -86,18 +90,37 @@ def test_simple_completion():
         print(f"   All phases complete: {state.get('all_phases_complete')}")
         print(f"   Status tracking: {state.get('status_tracking')}")
         
+        # Check that reviewer agent processed the completion
+        # All phases should be marked as done
+        status_tracking = state.get('status_tracking', {})
+        assert status_tracking.get('risk', {}).get('done') == True, "Risk should be done"
+        assert status_tracking.get('portfolio', {}).get('done') == True, "Portfolio should be done"
+        assert status_tracking.get('investment', {}).get('done') == True, "Investment should be done"
+        assert status_tracking.get('trading', {}).get('done') == True, "Trading should be done"
+        
+        # Check that all phases have data
+        assert state.get('risk') is not None, "Risk should exist"
+        assert state.get('portfolio') is not None, "Portfolio should exist"
+        assert state.get('investment') is not None, "Investment should exist"
+        assert state.get('trading_requests') is not None, "Trading requests should exist"
+        
+        # Check that reviewer responded (should show final summary or options)
         if state["messages"]:
             last_message = state["messages"][-1]
             if last_message["role"] == "ai":
-                print(f"Last AI message: {last_message['content'][:300]}...")
+                content = last_message['content']
+                print(f"Last AI message length: {len(content)}")
+                # Should have substantial content (summary or options)
+                assert len(content) > 50, "Reviewer should provide substantial response"
         
     except Exception as e:
         print(f"Error: {e}")
-        return False
+        import traceback
+        traceback.print_exc()
+        raise
     
     print("\n" + "=" * 50)
-    print("Simple completion test completed!")
-    return True
+    print("SUCCESS: Simple completion test completed!")
 
 
 if __name__ == "__main__":

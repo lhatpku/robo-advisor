@@ -34,3 +34,9 @@ yfinance>=0.2.18
 # Additional dependencies that might be needed
 httpx>=0.28.0
 anyio>=4.0.0
+
+# Testing and coverage
+pytest>=7.4.0
+pytest-cov>=4.1.0
+pytest-asyncio>=0.21.0
+coverage>=7.3.0
