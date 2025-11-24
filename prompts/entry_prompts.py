@@ -8,7 +8,7 @@ from typing import Optional, Literal
 # Intent Classification Model
 class EntryIntent(BaseModel):
     """Structured output for entry agent intent classification."""
-    action: Literal["proceed", "learn_more"]  # Only these two options
+    action: Literal["proceed", "learn_more", "unknown"]  # User actions including unknown intent
     question: Optional[str] = None  # Structured question about what they want to learn
 
 # Intent Classification Prompt

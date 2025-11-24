@@ -81,7 +81,9 @@ class SoftObjectiveRebalancer:
         tgt_w_cash = float(cash_pos["target_weight"])
         tgt_w_sum = float(np.sum(tgt_w_sec) + tgt_w_cash)
         if abs(tgt_w_sum - 1.0) > 1e-4:
-            print(f"⚠️ Warning: target weights sum to {tgt_w_sum:.3f}, not 1.0 (CASH + securities).")
+            import logging
+            logger = logging.getLogger(__name__)
+            logger.warning(f"Target weights sum to {tgt_w_sum:.3f}, not 1.0 (CASH + securities).")
 
         # --- Helpers ---
         def portfolio_weights(q_sec: np.ndarray, cash_amt: float) -> Tuple[np.ndarray, float]:

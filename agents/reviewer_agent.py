@@ -28,8 +28,14 @@ class ReviewerAgent(BaseAgent):
     
     def _classify_intent(self, user_input: str) -> ReviewerIntent:
         """Classify user intent using LLM with structured output."""
-        prompt = INTENT_CLASSIFICATION_PROMPT.format(user_input=user_input)
-        return self._structured_llm.invoke(prompt)
+        return self._classify_intent_with_retry(
+            user_input,
+            INTENT_CLASSIFICATION_PROMPT,
+            ReviewerIntent,
+            self._structured_llm,
+            default_intent=ReviewerIntent(action="unknown"),
+            operation_name="reviewer_classify_intent"
+        )
     
     def step(self, state: AgentState) -> AgentState:
         """
@@ -78,6 +84,14 @@ class ReviewerAgent(BaseAgent):
                         self._add_message(state, "ai", ReviewerMessages.thank_you_message())
                         self._set_status(state, awaiting_input=True)
                         return state
+                    
+                    elif intent.action == "unknown":
+                        # Unknown intent - repeat last question with clarification
+                        return self._handle_unknown_intent(state)
+                    
+                    else:
+                        # Fallback for any other action
+                        return self._handle_unknown_intent(state)
             
         else:
             # Not all complete - just validate and update state

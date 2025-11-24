@@ -148,7 +148,7 @@ I can choose funds using different criteria. Please select one:
     @staticmethod
     def investment_created(criteria_name: str) -> str:
         """Message when investment portfolio is created."""
-        return f"""I've created your tradeable portfolio using the **{criteria_name}** selection criteria. Would you like to review and edit any fund selections? You can say the asset class name (e.g., 'large cap growth') to see alternative options, or 'analyze [ticker]' for detailed fund analysis."""
+        return f"""✅ **Portfolio created!** I've built your tradeable portfolio using the **{criteria_name}** selection criteria.\n\n**What would you like to do next?**\n• **Review** your portfolio: say 'review'\n• **Edit** an asset class: say the asset class name (e.g., 'large cap growth')\n• **Analyze** a fund: say 'analyze [ticker]' (e.g., 'analyze VUG')\n• **Proceed** to trading: say 'proceed'"""
     
     @staticmethod
     def edit_asset_class_prompt() -> str:
@@ -194,7 +194,7 @@ I can choose funds using different criteria. Please select one:
     @staticmethod
     def asset_class_updated(asset_class: str, ticker: str) -> str:
         """Message when asset class is updated."""
-        return f"Updated {asset_class} to use {ticker}. Would you like to edit another asset class or review your portfolio?"
+        return f"✅ **Updated** {asset_class} to use **{ticker}**.\n\n**What would you like to do next?**\n• **Edit** another asset class: say the asset class name\n• **Review** portfolio: say 'review'\n• **Proceed** to trading: say 'proceed'"
     
     @staticmethod
     def fund_analysis_prompt() -> str:
@@ -209,7 +209,7 @@ I can choose funds using different criteria. Please select one:
     @staticmethod
     def help_message() -> str:
         """General help message."""
-        return "You can say 'review' to see your current portfolio, mention an asset class name to edit it (e.g., 'large cap growth'), 'analyze [ticker]' to get detailed fund analysis, or 'proceed' to move to trading."
+        return """**Available actions:**\n• **Review** portfolio: say 'review'\n• **Edit** asset class: say the asset class name (e.g., 'large cap growth')\n• **Analyze** fund: say 'analyze [ticker]' (e.g., 'analyze VUG')\n• **Proceed** to trading: say 'proceed'"""
     
     @staticmethod
     def portfolio_display_header() -> str:

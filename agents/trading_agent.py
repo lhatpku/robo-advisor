@@ -48,25 +48,25 @@ class TradingAgent(BaseAgent):
     
     def _classify_intent(self, user_input: str) -> TradingIntent:
         """Classify user intent using LLM with structured output."""
-        prompt = INTENT_CLASSIFICATION_PROMPT.format(user_input=user_input)
-        
-        try:
-            intent = self._structured_llm.invoke(prompt)
-            return intent
-        except Exception as e:
-            print(f"Error classifying intent: {e}")
-            return TradingIntent(action="unknown")
+        return self._classify_intent_with_retry(
+            user_input,
+            INTENT_CLASSIFICATION_PROMPT,
+            TradingIntent,
+            self._structured_llm,
+            default_intent=TradingIntent(action="unknown"),
+            operation_name="trading_classify_intent"
+        )
     
     def _classify_scenario_selection(self, user_input: str) -> ScenarioSelectionIntent:
         """Classify scenario selection intent using LLM with structured output."""
-        prompt = SCENARIO_SELECTION_PROMPT.format(user_input=user_input)
-        
-        try:
-            intent = self._scenario_llm.invoke(prompt)
-            return intent
-        except Exception as e:
-            print(f"Error classifying scenario selection: {e}")
-            return ScenarioSelectionIntent(action="unknown")
+        return self._classify_intent_with_retry(
+            user_input,
+            SCENARIO_SELECTION_PROMPT,
+            ScenarioSelectionIntent,
+            self._scenario_llm,
+            default_intent=ScenarioSelectionIntent(action="unknown"),
+            operation_name="trading_classify_scenario"
+        )
     
     def _handle_scenario_selection(self, state: AgentState, user_input: str) -> AgentState:
         """Handle scenario selection from user using LLM structured output."""
@@ -193,11 +193,16 @@ class TradingAgent(BaseAgent):
                 self._set_status(state, awaiting_input=True)
             return state
         
-        else:  # unknown
+        elif intent.action == "unknown":
+            # Unknown intent - repeat last question with clarification
             has_trades = bool(state.get("trading_requests"))
-            self._add_message(state, "ai", TradingMessages.intro_message(self._tax_weight, self._ltcg_rate, self._integer_shares, has_trades))
-            self._set_status(state, awaiting_input=True)
-            return state
+            fallback = TradingMessages.intro_message(self._tax_weight, self._ltcg_rate, self._integer_shares, has_trades)
+            return self._handle_unknown_intent(state, fallback_message=fallback)
+        else:
+            # Fallback for any other action
+            has_trades = bool(state.get("trading_requests"))
+            fallback = TradingMessages.intro_message(self._tax_weight, self._ltcg_rate, self._integer_shares, has_trades)
+            return self._handle_unknown_intent(state, fallback_message=fallback)
     
     def _execute_rebalancing(self, state: AgentState, investment: Dict[str, Any]) -> AgentState:
         """Execute portfolio rebalancing using TradingUtils."""

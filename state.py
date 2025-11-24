@@ -17,3 +17,4 @@ class AgentState(TypedDict, total=False):
     next_phase: Optional[str]            # Next phase to go to (set by reviewer)
     status_tracking: Optional[Dict[str, Dict[str, bool]]]  # {"risk": {"done": bool, "awaiting_input": bool}, ...}
     summary_shown: Dict[str, bool]  # Track if summary has been shown for each phase
+    correlation_id: Optional[str]  # Correlation ID for request tracking

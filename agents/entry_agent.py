@@ -63,15 +63,23 @@ class EntryAgent(BaseAgent):
             # Use question from intent, or create a default question based on next_phase
             question = intent.question or f"What is {next_phase} and how does it work?"
             return self._handle_learn_more_intent(state, question)
+        elif intent.action == "unknown":
+            # Unknown intent - repeat last question with clarification
+            return self._handle_unknown_intent(state, fallback_message=EntryMessages.unclear_intent())
         else:
-            # Unknown intent - show help
-            self._add_message(state, "ai", EntryMessages.unclear_intent())
-            return state
+            # Fallback for any other action
+            return self._handle_unknown_intent(state, fallback_message=EntryMessages.unclear_intent())
     
     def _classify_intent(self, user_input: str) -> EntryIntent:
         """Classify user intent using LLM with structured output."""
-        prompt = INTENT_CLASSIFICATION_PROMPT.format(user_input=user_input)
-        return self._structured_llm.invoke(prompt)
+        return self._classify_intent_with_retry(
+            user_input,
+            INTENT_CLASSIFICATION_PROMPT,
+            EntryIntent,
+            self._structured_llm,
+            default_intent=EntryIntent(action="unknown"),  # Use unknown as default for error cases
+            operation_name="entry_classify_intent"
+        )
     
     def _handle_proceed_intent(self, state: AgentState, next_phase: str) -> AgentState:
         """Handle when user wants to proceed to next phase."""

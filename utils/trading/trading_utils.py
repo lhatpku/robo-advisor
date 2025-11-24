@@ -185,7 +185,9 @@ class TradingUtils:
             })
             
         except Exception as e:
-            print(f"Rebalancing error: {e}")
+            import logging
+            logger = logging.getLogger(__name__)
+            logger.error(f"Rebalancing error: {e}", exc_info=True)
             state["messages"].append({
                 "role": "ai",
                 "content": TradingMessages.rebalancing_failed()

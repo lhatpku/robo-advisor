@@ -1,6 +1,6 @@
 # 🧠 Robo Advisor with Risk, Portfolio, Investment & Trading Agents
 
-This repository implements a **complete 5-step** intelligent, modular robo-advising platform built on
+This repository implements a **complete 4-step** intelligent, modular robo-advising platform built on
 LLM-powered agents orchestrated with **LangGraph**.  
 The system integrates conversational intent detection, questionnaire-based risk profiling,
 portfolio optimization, fund selection, trading execution workflows, and a modern **Streamlit web interface**.
@@ -58,27 +58,98 @@ User
 
 ---
 
+## 📁 Project Structure
+
+```
+robo-advisor/
+├── agents/                    # All agent implementations
+│   ├── base_agent.py         # BaseAgent class with common functionality
+│   ├── entry_agent.py        # Entry orchestrator and routing
+│   ├── risk_agent.py         # Risk profiling and questionnaire
+│   ├── portfolio_agent.py    # Portfolio optimization
+│   ├── investment_agent.py   # Fund selection and analysis
+│   ├── trading_agent.py      # Trading request generation
+│   └── reviewer_agent.py     # Final review and flow management
+│
+├── utils/                     # Utility modules organized by domain
+│   ├── risk/                  # Risk management utilities
+│   │   ├── risk_manager.py    # Risk calculation and questionnaire
+│   │   └── config.py          # Risk configuration
+│   ├── portfolio/             # Portfolio optimization utilities
+│   │   ├── portfolio_manager.py  # Mean-variance optimization
+│   │   └── config.py          # Portfolio configuration
+│   ├── investment/            # Investment selection utilities
+│   │   ├── fund_analyzer.py   # Yahoo Finance integration
+│   │   ├── fund_analysis_tool.py  # Fund analysis tools
+│   │   ├── investment_utils.py     # Investment utilities
+│   │   └── config.py          # Investment configuration
+│   ├── trading/               # Trading execution utilities
+│   │   ├── trading_utils.py  # Trading utility functions
+│   │   ├── rebalance.py      # Tax-aware rebalancing
+│   │   ├── trading_scenarios.py  # Demo scenarios
+│   │   └── config.py         # Trading configuration
+│   └── reviewer/              # Reviewer utilities
+│       └── reviewer_utils.py  # Reviewer helper functions
+│
+├── operation/                 # Operational concerns (logging, retry, health, monitoring)
+│   ├── logging/               # Centralized logging
+│   │   └── logging_config.py  # Logging configuration and setup
+│   ├── retry/                 # Retry mechanism with exponential backoff
+│   │   ├── retry.py           # Retry decorators and utilities
+│   │   └── retry_config.py    # Retry configuration
+│   ├── healthcheck/           # System health checks
+│   │   ├── health_check.py    # Health check base classes
+│   │   ├── openai_check.py    # OpenAI API health check
+│   │   ├── yfinance_check.py  # Yahoo Finance health check
+│   │   └── filesystem_check.py # Filesystem health check
+│   ├── monitoring/            # Performance monitoring
+│   │   ├── metrics.py         # Metrics collection
+│   │   └── performance.py     # Performance tracking
+│   └── guards/                # Input validation and security
+│       └── input_guard.py     # Prompt injection protection
+│
+├── prompts/                   # Agent prompts and message templates
+│   ├── entry_prompts.py       # Entry agent prompts and messages
+│   ├── risk_prompts.py        # Risk agent prompts and messages
+│   ├── portfolio_prompts.py   # Portfolio agent prompts and messages
+│   ├── investment_prompts.py  # Investment agent prompts and messages
+│   ├── trading_prompts.py    # Trading agent prompts and messages
+│   └── reviewer_prompts.py   # Reviewer agent prompts and messages
+│
+├── test/                      # Test suites
+│   ├── unittesting/           # Unit tests
+│   └── userflowtesting/       # End-to-end flow tests
+│
+├── app.py                     # Main LangGraph orchestration
+├── state.py                   # Shared TypedDict state
+├── streamlit_app.py           # Modern web interface
+└── README.md                  # This file
+```
+
 ## 🧩 Key Components
 
-| Module | File | Purpose |
-|--------|------|----------|
-| **Entry** | `entry_agent.py` | Main orchestrator, intent detection, routing |
-| **Risk** | `risk/risk_agent.py` | Risk profiling questionnaire and guidance |
-| | `risk/risk_manager.py` | Risk calculation tools and question management |
-| **Portfolio** | `portfolio/portfolio_agent.py` | Portfolio optimization conversation |
-| | `portfolio/portfolio_manager.py` | Mean-variance optimization tools |
-| **Investment** | `investment/investment_agent.py` | Fund selection and analysis |
-| | `investment/fund_analyzer.py` | Yahoo Finance API integration |
-| **Trading** | `trading/trading_agent.py` | Trading request generation |
-| | `trading/trading_utils.py` | Trading utility functions |
-| | `trading/rebalance.py` | Tax-aware rebalancing optimization |
-| | `trading/config.py` | Configuration and assumptions |
-| | `trading/trading_scenarios.py` | Demo trading scenarios |
-| **Reviewer** | `reviewer/reviewer_agent.py` | Final review, recommendations, and flow orchestration |
-| | `reviewer/reviewer_utils.py` | Reviewer utility functions |
-| **UI** | `streamlit_app.py` | Modern web interface with real-time visualization |
-| **Core** | `state.py` | Shared TypedDict state |
-| | `app.py` | Main LangGraph orchestration |
+| Module | Location | Purpose |
+|--------|----------|----------|
+| **Base Agent** | `agents/base_agent.py` | Common functionality for all agents (logging, retry, monitoring) |
+| **Entry Agent** | `agents/entry_agent.py` | Main orchestrator, intent detection, routing |
+| **Risk Agent** | `agents/risk_agent.py` | Risk profiling questionnaire and guidance |
+| **Portfolio Agent** | `agents/portfolio_agent.py` | Portfolio optimization conversation |
+| **Investment Agent** | `agents/investment_agent.py` | Fund selection and analysis |
+| **Trading Agent** | `agents/trading_agent.py` | Trading request generation |
+| **Reviewer Agent** | `agents/reviewer_agent.py` | Final review and flow orchestration |
+| **Risk Utils** | `utils/risk/` | Risk calculation tools and question management |
+| **Portfolio Utils** | `utils/portfolio/` | Mean-variance optimization tools |
+| **Investment Utils** | `utils/investment/` | Yahoo Finance API integration and fund analysis |
+| **Trading Utils** | `utils/trading/` | Tax-aware rebalancing and trading utilities |
+| **Reviewer Utils** | `utils/reviewer/` | Reviewer helper functions |
+| **Logging** | `operation/logging/` | Centralized structured logging |
+| **Retry** | `operation/retry/` | Exponential backoff retry mechanism |
+| **Health Checks** | `operation/healthcheck/` | System health monitoring |
+| **Monitoring** | `operation/monitoring/` | Performance metrics and tracking |
+| **Guards** | `operation/guards/` | Input validation and security |
+| **Prompts** | `prompts/` | Agent prompts and message templates |
+| **UI** | `streamlit_app.py` | Modern web interface with markdown rendering |
+| **Core** | `state.py`, `app.py` | Shared state and LangGraph orchestration |
 
 ---
 
@@ -100,6 +171,13 @@ Create a `.env` file in the project root:
 OPENAI_API_KEY=sk-your-key
 OPENAI_MODEL=gpt-4o-mini
 OPENAI_TEMPERATURE=0.2
+
+# Optional: Logging configuration
+LOG_LEVEL=INFO                    # DEBUG, INFO, WARNING, ERROR
+LOG_FILE=logs/robo_advisor.log    # Optional log file path
+
+# Optional: Health check configuration
+ENABLE_HEALTH_CHECKS=true         # Set to false to disable health checks
 ```
 
 ### 3. Run the Application
@@ -118,27 +196,34 @@ python app.py
 
 ## 🎨 Streamlit Web Interface Features
 
-### **Interactive Chat Interface**
-- Real-time back-and-forth communication with the AI robo-advisor
-- Clean message input with automatic form submission
-- Displays latest AI response prominently
+### **Chat Interface**
+- **Markdown Rendering**: Native markdown support for structured AI responses
+- **Message Display**: Gradient header cards with horizontal separators
+- **Real-time Communication**: Synchronous conversation flow with form-based input
+- **Conversation History**: Collapsible message log with full conversation access
 
-### **Real-time Data Visualization**
-- **Risk Assessment**: Bar charts for equity/bond allocation + collapsible questionnaire answers
-- **Portfolio**: Interactive pie charts + detailed allocation tables with weights
-- **Investment**: Comprehensive fund selection table with tickers, weights, and selection criteria
-- **Trading**: Clean table format for trading requests with execution details
+### **Data Visualization**
+- **Risk Assessment**: Bar charts for equity/bond allocation with questionnaire results
+- **Portfolio Analysis**: Interactive pie charts and allocation tables with weight distributions
+- **Investment Selection**: Fund selection tables with tickers, weights, and selection criteria
+- **Trading Execution**: Trading request tables with execution details and metrics
 
-### **Process Status Tracking**
-- Visual progress indicators for each of the 4 main phases
-- Color-coded status indicators (complete/pending/not started)
-- Progress bar in sidebar showing completion percentage
+### **Status Tracking**
+- **Progress Indicators**: Color-coded status for each phase (complete/pending/not started)
+- **Completion Metrics**: Progress bar showing overall phase completion percentage
+- **Phase Status**: Individual status cards for risk, portfolio, investment, and trading phases
 
-### **Advanced UI Features**
-- **Collapsible Message History**: Expandable conversation log (shows last 15 messages)
-- **Reset Functionality**: One-click reset button to clear state and restart
-- **Reactive Design**: Sections only appear when relevant data exists
-- **Modern Styling**: Professional interface with custom CSS and responsive layout
+### **System Monitoring**
+- **Health Checks**: Cached API health monitoring (30-second TTL) for OpenAI and Yahoo Finance
+- **Performance Metrics**: Real-time tracking of agent execution times and API response times
+- **System Status**: Component-level health status with detailed diagnostics
+- **Sidebar Integration**: Compact monitoring display integrated into sidebar
+
+### **User Experience**
+- **Collapsible Sections**: Expandable conversation history and monitoring panels
+- **State Management**: One-click reset functionality for session restart
+- **Reactive UI**: Dynamic section visibility based on data availability
+- **Performance Optimization**: Cached operations prevent UI blocking during health checks
 
 ---
 
@@ -404,45 +489,77 @@ python app.py
 
 ## 🧰 Technical Features
 
+### BaseAgent Architecture
+- **Inheritance Pattern**: All agents inherit from `BaseAgent` for shared functionality
+- **Common Features**: Logging, retry, monitoring, status management, message helpers
+- **Code Reusability**: Reduced duplication across all agents
+- **Consistent Interface**: Standardized methods for all agents
+
+### Retry Mechanism with Exponential Backoff
+- **Automatic Retries**: Built-in retry for LLM calls and external API requests
+- **Exponential Backoff**: Configurable delays with jitter to prevent thundering herd
+- **Retryable Exceptions**: Smart detection of transient vs permanent failures
+- **Configurable**: Customizable max attempts, delays, and strategies per operation
+- **Transparent**: Integrated into `BaseAgent` - all agents benefit automatically
+
+### Health Checks
+- **System Health Monitoring**: Checks for OpenAI API, Yahoo Finance API, and filesystem
+- **Cached Results**: 30-second cache to prevent UI blocking (configurable via `ENABLE_HEALTH_CHECKS`)
+- **Status Indicators**: Visual health status in sidebar (healthy/degraded/unhealthy)
+- **Response Time Tracking**: Monitors API response times for performance insights
+- **Background Updates**: Non-blocking health checks for better UX
+
+### Logging & Monitoring
+- **Structured Logging**: Centralized logging with correlation IDs for request tracing
+- **Log Levels**: Configurable log levels (DEBUG, INFO, WARNING, ERROR)
+- **Correlation IDs**: Unique IDs for tracing requests across components
+- **Performance Metrics**: Automatic tracking of operation timings and counters
+- **Error Tracking**: Comprehensive error logging with stack traces
+
 ### Configuration System
-- **Centralized config** (`trading/config.py`) with all assumptions and parameters
-- **Easy toggle** between assumed data and real market data
-- **Comprehensive documentation** of all assumptions and production recommendations
+- **Centralized Config**: Domain-specific configs in `utils/*/config.py`
+- **Retry Config**: Centralized retry configuration in `operation/retry/retry_config.py`
+- **Easy Toggle**: Switch between demo data and real market data
+- **Comprehensive Documentation**: All assumptions and production recommendations documented
 
 ### State Management
-- **Clean AgentState** with only shared fields
-- **Internal state** for agent-specific data (demo scenarios, preferences)
-- **Type-safe** state management with TypedDict
-- **Status tracking** for each agent phase (done, awaiting_input)
+- **Clean AgentState**: Shared TypedDict with only necessary fields
+- **Internal State**: Agent-specific data kept internal (demo scenarios, preferences)
+- **Type-safe**: Full typing with TypedDict and Pydantic models
+- **Status Tracking**: Per-agent status tracking (done, awaiting_input)
+- **Correlation IDs**: Request tracing across the entire flow
 
 ### Fund Analysis
-- **Yahoo Finance integration** for real-time fund data
-- **Performance metrics**: returns, volatility, Sharpe ratio, beta, max drawdown
-- **Management metrics**: expense ratio, AUM, fund family, inception date
-- **Data quality assessment** and fallback handling
+- **Yahoo Finance Integration**: Real-time fund data retrieval
+- **Performance Metrics**: Returns, volatility, Sharpe ratio, beta, max drawdown
+- **Management Metrics**: Expense ratio, AUM, fund family, inception date
+- **Data Quality Assessment**: Fallback handling for missing or incomplete data
+- **Health Checks**: Monitors Yahoo Finance API availability
 
 ### Trading Optimization
-- **Tax-aware rebalancing** with lot-aware cost calculation
-- **Full covariance risk model** for accurate tracking error
-- **Soft tax cap** with increasing penalty functions
-- **Cash sweep band** management
-- **Two-stage integerization** for whole-share constraints
-- **Demo scenarios** for realistic testing
+- **Tax-aware Rebalancing**: Lot-aware cost calculation with tax optimization
+- **Full Covariance Risk Model**: Accurate tracking error calculation
+- **Soft Tax Cap**: Increasing penalty functions for tax management
+- **Cash Sweep Band**: Intelligent cash management
+- **Two-stage Integerization**: Whole-share constraints handling
+- **Demo Scenarios**: Realistic testing scenarios
 
 ### Web Interface
-- **Real-time visualization** with Plotly charts and tables
-- **Reactive design** that shows/hides sections based on data availability
-- **Message history** with collapsible conversation log
-- **Status tracking** with visual progress indicators
-- **Reset functionality** for easy testing and restart
+- **Native Markdown**: All AI responses render as markdown with proper formatting
+- **Real-time Visualization**: Plotly charts and tables with live updates
+- **Reactive Design**: Sections show/hide based on data availability
+- **Performance Optimized**: Cached health checks, efficient rendering
+- **Modern UI**: Gradient accents, card-based design, clean separators
+- **Status Tracking**: Visual progress indicators and phase status
 
-### Error Handling
-- **Comprehensive error handling** with user-friendly messages
-- **Debug information** for development (removed from production output)
-- **Graceful fallbacks** for missing data or API failures
-- **Unicode encoding fixes** for cross-platform compatibility
+### Error Handling & Security
+- **Comprehensive Error Handling**: User-friendly error messages
+- **Input Validation**: Prompt injection protection via `operation/guards/`
+- **Retry Logic**: Automatic retry for transient failures
+- **Graceful Fallbacks**: Handles missing data or API failures elegantly
+- **Structured Output**: Pydantic validation ensures data integrity
+- **Unknown Intent Handling**: Centralized handling of unclear user intents
 
----
 
 ## 🚀 Production Roadmap
 
@@ -451,6 +568,7 @@ python app.py
 2. **Implement real-time fund data** feeds
 3. **Add custodian integration** for trade execution
 4. **Implement portfolio monitoring** and rebalancing triggers
+5. **Enhanced Monitoring Dashboard**: More detailed metrics and analytics
 
 ---
 
@@ -509,7 +627,7 @@ The application implements comprehensive input validation and security measures 
 
 ### Input Validation
 
-The application uses a lightweight, regex-based input guardrail system located in `guards/input_guard.py`:
+The application uses a lightweight, regex-based input guardrail system located in `operation/guards/input_guard.py`:
 
 #### **Detection Patterns**
 
@@ -553,7 +671,7 @@ The guard detects common prompt injection and hijacking patterns:
 #### **Implementation**
 
 ```python
-# guards/input_guard.py
+# operation/guards/input_guard.py
 class InputGuard:
     def validate(self, user_input: str) -> Tuple[bool, Optional[str]]:
         # 1. Check input format and length
@@ -565,6 +683,8 @@ class InputGuard:
 **Usage in Streamlit:**
 ```python
 # streamlit_app.py
+from operation.guards import get_guard
+
 guard = get_guard()
 is_safe, error_msg = guard.validate(user_input)
 if not is_safe:

@@ -69,12 +69,12 @@ class PortfolioMessages:
     @staticmethod
     def optimization_success(portfolio_table: str, note: str = "") -> str:
         """Message when optimization is successful."""
-        return f"Optimization complete{note}. I've built your asset-class portfolio.\n\n{portfolio_table}\n\n Review weights or proceed to ETF selection?"
+        return f"✅ **Optimization complete**{note}. I've built your asset-class portfolio.\n\n{portfolio_table}\n\n**What would you like to do next?**\n• **Review** weights: say 'review'\n• **Proceed** to ETF selection: say 'proceed'"
     
     @staticmethod
     def optimization_failed() -> str:
         """Message when optimization fails."""
-        return "Portfolio optimization failed. Please try again."
+        return "❌ **Portfolio optimization failed.** Please try again or adjust your parameters."
     
     @staticmethod
     def review_current_portfolio(portfolio_table: str, lambda_value: float, cash_reserve: float) -> str:
@@ -93,4 +93,4 @@ class PortfolioMessages:
     @staticmethod
     def proceed_success() -> str:
         """Message when user wants to proceed."""
-        return "Great — proceeding to the next step."
+        return "✅ **Great!** Proceeding to the next step."

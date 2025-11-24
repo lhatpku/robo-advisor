@@ -49,14 +49,14 @@ class PortfolioAgent(BaseAgent):
     
     def _classify_intent(self, user_input: str) -> PortfolioIntent:
         """Classify user intent using LLM with structured output."""
-        prompt = INTENT_CLASSIFICATION_PROMPT.format(user_input=user_input)
-        
-        try:
-            intent = self._structured_llm.invoke(prompt)
-            return intent
-        except Exception as e:
-            print(f"Error classifying intent: {e}")
-            return PortfolioIntent(action="unknown")
+        return self._classify_intent_with_retry(
+            user_input,
+            INTENT_CLASSIFICATION_PROMPT,
+            PortfolioIntent,
+            self._structured_llm,
+            default_intent=PortfolioIntent(action="unknown"),
+            operation_name="portfolio_classify_intent"
+        )
     
     def _format_portfolio(self, portfolio: Dict[str, float]) -> str:
         """Return a compact markdown table of weights sorted by weight desc."""
@@ -178,11 +178,14 @@ class PortfolioAgent(BaseAgent):
                 self._set_status(state, awaiting_input=True)
             return state
             
-        else:  # unknown or unclear intent
-            # Show intro message for unclear inputs
-            self._add_message(state, "ai", PortfolioMessages.intro_message(lam, cash_reserve, max_cash))
-            self._set_status(state, awaiting_input=True)
-            return state
+        elif intent.action == "unknown":
+            # Unknown intent - repeat last question with clarification
+            fallback = PortfolioMessages.intro_message(lam, cash_reserve, max_cash)
+            return self._handle_unknown_intent(state, fallback_message=fallback)
+        else:
+            # Fallback for any other action
+            fallback = PortfolioMessages.intro_message(lam, cash_reserve, max_cash)
+            return self._handle_unknown_intent(state, fallback_message=fallback)
 
     def router(self, state: AgentState) -> str:
         """

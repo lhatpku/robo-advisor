@@ -125,6 +125,16 @@ if __name__ == "__main__":
         }
     }
 
+    # Initialize logging
+    from operation.logging.logging_config import setup_logging, set_correlation_id
+    import uuid
+    setup_logging(level=os.getenv("LOG_LEVEL", "INFO"))
+    
+    # Set correlation ID for this session
+    correlation_id = str(uuid.uuid4())
+    set_correlation_id(correlation_id)
+    state["correlation_id"] = correlation_id
+    
     # --- INITIAL TICK to produce greeting ---
     state = graph.invoke(state)
     ai_msgs = [m for m in state["messages"] if m.get("role") == "ai"]

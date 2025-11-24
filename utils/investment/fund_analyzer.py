@@ -66,9 +66,24 @@ class FundAnalyzer:
     
     def _get_basic_fund_data(self, ticker: str) -> Dict[str, Any]:
         """Get basic fund information from yfinance."""
-        try:
+        from operation.retry.retry import retry_with_backoff
+        from operation.retry.retry_config import YFINANCE_RETRY_CONFIG
+        
+        @retry_with_backoff(
+            max_attempts=YFINANCE_RETRY_CONFIG.max_attempts,
+            initial_delay=YFINANCE_RETRY_CONFIG.initial_delay,
+            max_delay=YFINANCE_RETRY_CONFIG.max_delay,
+            multiplier=YFINANCE_RETRY_CONFIG.multiplier,
+            jitter=YFINANCE_RETRY_CONFIG.jitter,
+            retryable_exceptions=YFINANCE_RETRY_CONFIG.retryable_exceptions,
+            strategy=YFINANCE_RETRY_CONFIG.strategy
+        )
+        def _fetch_fund_info():
             fund = yf.Ticker(ticker)
-            info = fund.info
+            return fund.info
+        
+        try:
+            info = _fetch_fund_info()
             
             # Extract relevant fund information (only fields reliably available in yfinance)
             fund_data = {
@@ -101,9 +116,24 @@ class FundAnalyzer:
     
     def _calculate_performance_metrics(self, ticker: str, period: str = "5y") -> Dict[str, Any]:
         """Calculate performance metrics from historical data."""
-        try:
+        from operation.retry.retry import retry_with_backoff
+        from operation.retry.retry_config import YFINANCE_RETRY_CONFIG
+        
+        @retry_with_backoff(
+            max_attempts=YFINANCE_RETRY_CONFIG.max_attempts,
+            initial_delay=YFINANCE_RETRY_CONFIG.initial_delay,
+            max_delay=YFINANCE_RETRY_CONFIG.max_delay,
+            multiplier=YFINANCE_RETRY_CONFIG.multiplier,
+            jitter=YFINANCE_RETRY_CONFIG.jitter,
+            retryable_exceptions=YFINANCE_RETRY_CONFIG.retryable_exceptions,
+            strategy=YFINANCE_RETRY_CONFIG.strategy
+        )
+        def _fetch_history():
             fund = yf.Ticker(ticker)
-            hist = fund.history(period=period)
+            return fund.history(period=period)
+        
+        try:
+            hist = _fetch_history()
             
             if hist.empty:
                 return {"error": "No historical data available"}

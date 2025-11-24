@@ -67,14 +67,14 @@ class InvestmentAgent(BaseAgent):
     
     def _classify_intent(self, user_input: str) -> InvestmentIntent:
         """Classify user intent using LLM with structured output."""
-        prompt = INTENT_CLASSIFICATION_PROMPT.format(user_input=user_input)
-        
-        try:
-            intent = self._structured_llm.invoke(prompt)
-            return intent
-        except Exception as e:
-            print(f"Error classifying intent: {e}")
-            return InvestmentIntent(action="unknown")
+        return self._classify_intent_with_retry(
+            user_input,
+            INTENT_CLASSIFICATION_PROMPT,
+            InvestmentIntent,
+            self._structured_llm,
+            default_intent=InvestmentIntent(action="unknown"),
+            operation_name="investment_classify_intent"
+        )
     
     def step(self, state: Dict[str, Any]) -> Dict[str, Any]:
         """
@@ -176,8 +176,12 @@ class InvestmentAgent(BaseAgent):
                 self._add_message(state, "ai", InvestmentMessages.need_investment_first())
                 return state
         
-        else:  # unknown intent
-            # Check if we're in criteria selection mode
+        elif intent.action == "unknown":
+            # Unknown intent - repeat last question with clarification
+            fallback = InvestmentMessages.unclear_intent()
+            return self._handle_unknown_intent(state, fallback_message=fallback)
+        else:
+            # Fallback for any other action - check if we're in criteria selection mode
             if self._investment_criteria_selection:
                 return self.utils.create_initial_investment(state)
             

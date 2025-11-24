@@ -6,16 +6,22 @@ from typing import Dict, Any, List, Optional
 import json
 import os
 from dotenv import load_dotenv
+from datetime import datetime, timedelta
+import logging
 
 # Import the existing app components
 from app import build_graph
 from state import AgentState
 from langchain_openai import ChatOpenAI
+
 # Load environment variables
 load_dotenv()
 
-# Import guard (now using lightweight regex-based validation)
-from guards import get_guard
+# Import guard and monitoring
+from operation.guards import get_guard
+from operation.healthcheck import CompositeHealthCheck, OpenAIHealthCheck, YFinanceHealthCheck, HealthStatus
+from operation.monitoring.metrics import get_metrics_registry
+from operation.logging.logging_config import get_logger, get_correlation_id
 
 # Configuration function
 def get_config():
@@ -28,84 +34,277 @@ def get_config():
 
 # Page configuration
 st.set_page_config(
-    page_title="Robo-Advisor",
+    page_title="AI Robo-Advisor",
     page_icon="🤖",
     layout="wide",
     initial_sidebar_state="expanded"
 )
 
-# Custom CSS for better styling
+# Modern CSS styling
 st.markdown("""
 <style>
+    /* Main theme colors */
+    :root {
+        --primary-color: #1e3a8a;
+        --secondary-color: #3b82f6;
+        --success-color: #10b981;
+        --warning-color: #f59e0b;
+        --danger-color: #ef4444;
+        --bg-color: #f8fafc;
+        --card-bg: #ffffff;
+        --text-primary: #1f2937;
+        --text-secondary: #6b7280;
+    }
+    
+    /* Hide Streamlit default elements */
+    #MainMenu {visibility: hidden;}
+    footer {visibility: hidden;}
+    header {visibility: hidden;}
+    
+    /* Custom header */
     .main-header {
-        font-size: 2.5rem;
-        font-weight: bold;
-        color: #1f77b4;
-        text-align: center;
+        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        padding: 2rem;
+        border-radius: 1rem;
+        color: white;
         margin-bottom: 2rem;
+        box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
     }
-    .section-header {
-        font-size: 1.5rem;
-        font-weight: bold;
-        color: #2c3e50;
-        margin-top: 1.5rem;
-        margin-bottom: 1rem;
-        border-bottom: 2px solid #3498db;
-        padding-bottom: 0.5rem;
+    
+    .main-header h1 {
+        margin: 0;
+        font-size: 2.5rem;
+        font-weight: 700;
     }
-    .metric-card {
-        background-color: #f8f9fa;
-        padding: 1rem;
+    
+    .main-header p {
+        margin: 0.5rem 0 0 0;
+        opacity: 0.9;
+        font-size: 1.1rem;
+    }
+    
+    /* Status cards - compact */
+    .status-card {
+        background: white;
+        padding: 0.5rem 0.75rem;
         border-radius: 0.5rem;
-        border-left: 4px solid #3498db;
-        margin: 0.5rem 0;
+        border-left: 3px solid;
+        margin: 0.25rem 0;
+        box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05);
+        transition: transform 0.2s;
     }
-    .status-indicator {
+    
+    .status-card:hover {
+        transform: translateY(-1px);
+        box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+    }
+    
+    .status-complete {
+        border-left-color: #10b981;
+    }
+    
+    .status-pending {
+        border-left-color: #f59e0b;
+    }
+    
+    .status-not-started {
+        border-left-color: #9ca3af;
+    }
+    
+    /* Message cards - clean design without white box */
+    .ai-message-card {
+        background: transparent;
+        padding: 0;
+        margin: 1.5rem 0;
+    }
+    
+    /* Horizontal line separator */
+    .ai-message-card::before {
+        content: '';
+        display: block;
+        width: 100%;
+        height: 2px;
+        background: linear-gradient(90deg, transparent 0%, #667eea 20%, #764ba2 80%, transparent 100%);
+        margin-bottom: 1.25rem;
+        border-radius: 1px;
+    }
+    
+    .user-message-card {
+        background: transparent;
+        padding: 0;
+        margin: 1rem 0;
+    }
+    
+    .user-message-card::before {
+        content: '';
+        display: block;
+        width: 100%;
+        height: 1px;
+        background: linear-gradient(90deg, transparent 0%, #9ca3af 50%, transparent 100%);
+        margin-bottom: 1rem;
+    }
+    
+    /* Enhanced message header styling - prominent card design */
+    .message-header {
+        display: inline-flex;
+        align-items: center;
+        gap: 0.5rem;
+        margin-bottom: 1rem;
+        font-weight: 700;
+        font-size: 1.05rem;
+        padding: 0.75rem 1.25rem;
+        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        color: white;
+        border-radius: 0.75rem;
+        box-shadow: 0 4px 12px rgba(102, 126, 234, 0.25);
+        letter-spacing: 0.3px;
+    }
+    
+    .user-message-header {
+        background: linear-gradient(135deg, #e5e7eb 0%, #d1d5db 100%);
+        color: #374151;
+        box-shadow: 0 2px 6px rgba(0, 0, 0, 0.1);
+    }
+    
+    /* Markdown content styling within cards - target Streamlit's markdown containers */
+    .ai-message-card > div[data-testid="stMarkdownContainer"] {
+        margin: 0;
+    }
+    
+    .ai-message-card p {
+        margin: 0.5rem 0;
+        color: #1f2937;
+        line-height: 1.7;
+    }
+    
+    .ai-message-card strong {
+        color: #667eea;
+        font-weight: 600;
+    }
+    
+    .ai-message-card ul,
+    .ai-message-card ol {
+        margin: 0.75rem 0;
+        padding-left: 1.5rem;
+    }
+    
+    .ai-message-card li {
+        margin: 0.4rem 0;
+        color: #374151;
+    }
+    
+    .ai-message-card code {
+        background: #e0e7ff;
+        color: #667eea;
+        padding: 0.2rem 0.5rem;
+        border-radius: 0.25rem;
+        font-size: 0.9em;
+        font-weight: 500;
+    }
+    
+    .user-message-card > div[data-testid="stMarkdownContainer"] {
+        margin: 0;
+    }
+    
+    .user-message-card p {
+        margin: 0.5rem 0;
+        color: #1f2937;
+        line-height: 1.7;
+    }
+    
+    .user-message-card strong {
+        color: #374151;
+        font-weight: 600;
+    }
+    
+    .user-message-card ul,
+    .user-message-card ol {
+        margin: 0.75rem 0;
+        padding-left: 1.5rem;
+    }
+    
+    .user-message-card li {
+        margin: 0.4rem 0;
+        color: #4b5563;
+    }
+    
+    .user-message-card code {
+        background: #e5e7eb;
+        color: #1f2937;
+        padding: 0.2rem 0.5rem;
+        border-radius: 0.25rem;
+        font-size: 0.9em;
+    }
+    
+    /* Health status indicators */
+    .health-indicator {
         display: inline-block;
-        width: 12px;
-        height: 12px;
+        width: 10px;
+        height: 10px;
         border-radius: 50%;
         margin-right: 8px;
     }
-    .status-complete {
-        background-color: #27ae60;
+    
+    .health-healthy {
+        background-color: #10b981;
+        box-shadow: 0 0 8px rgba(16, 185, 129, 0.5);
     }
-    .status-pending {
-        background-color: #f39c12;
+    
+    .health-degraded {
+        background-color: #f59e0b;
+        box-shadow: 0 0 8px rgba(245, 158, 11, 0.5);
     }
-    .status-not-started {
-        background-color: #95a5a6;
+    
+    .health-unhealthy {
+        background-color: #ef4444;
+        box-shadow: 0 0 8px rgba(239, 68, 68, 0.5);
     }
-    .message-container {
-        max-height: 400px;
-        overflow-y: auto;
-        border: 1px solid #ddd;
-        border-radius: 0.5rem;
-        padding: 1rem;
-        background-color: #f8f9fa;
-    }
-    .user-message {
-        background-color: #e3f2fd;
-        color: #000000;
+    
+    /* Sidebar styling - compact */
+    .sidebar-section {
+        background: white;
         padding: 0.75rem;
         border-radius: 0.5rem;
         margin: 0.5rem 0;
-        border-left: 4px solid #2196f3;
+        box-shadow: 0 2px 4px rgba(0, 0, 0, 0.05);
     }
-    .ai-message {
-        background-color: #f1f8e9;
-        color: #000000;
-        padding: 0.75rem;
-        border-radius: 0.5rem;
-        margin: 0.5rem 0;
-        border-left: 4px solid #4caf50;
+    
+    /* Compact sidebar headers */
+    .sidebar-section h3 {
+        margin-top: 0;
+        margin-bottom: 0.5rem;
+        font-size: 1rem;
+    }
+    
+    /* Override status card padding for compact sidebar */
+    .sidebar-section .status-card {
+        padding: 0.5rem 0.75rem;
+        margin: 0.25rem 0;
+    }
+    
+    .sidebar-section .status-card strong {
+        font-size: 0.9rem;
+    }
+    
+    /* Progress bar enhancement */
+    .stProgress > div > div > div {
+        background: linear-gradient(90deg, #667eea 0%, #764ba2 100%);
     }
 </style>
 """, unsafe_allow_html=True)
 
 def initialize_session_state():
     """Initialize session state variables"""
+    # Initialize logging
+    from operation.logging.logging_config import setup_logging, set_correlation_id
+    import uuid
+    setup_logging(level=os.getenv("LOG_LEVEL", "INFO"))
+    
     if 'state' not in st.session_state:
+        # Generate correlation ID for this session
+        correlation_id = str(uuid.uuid4())
+        set_correlation_id(correlation_id)
+        
         st.session_state.state = {
             "messages": [],
             "answers": {},
@@ -133,7 +332,8 @@ def initialize_session_state():
                 "investment": {"done": False, "awaiting_input": False},
                 "trading": {"done": False, "awaiting_input": False},
                 "reviewer": {"done": False, "awaiting_input": False}
-            }
+            },
+            "correlation_id": correlation_id
         }
     
     if 'graph' not in st.session_state:
@@ -151,6 +351,7 @@ def initialize_session_state():
             temperature=config["temperature"],
         )
         st.session_state.graph = build_graph(llm)
+        st.session_state.llm = llm  # Store for health checks
     
     if 'initialized' not in st.session_state:
         st.session_state.initialized = False
@@ -189,147 +390,380 @@ def reset_app():
     st.session_state.initialized = False
     st.rerun()
 
-def display_risk_assessment(state: AgentState):
-    """Display risk assessment results and questionnaire answers"""
-    if not state.get("risk") and not state.get("answers"):
+def render_status_bar(state: AgentState):
+    """Render a well-designed status bar in the sidebar"""
+    st.markdown('<div class="sidebar-section">', unsafe_allow_html=True)
+    st.markdown("### 📊 Progress Status")
+    
+    status_tracking = state.get("status_tracking", {})
+    phases = [
+        ("risk", "🎯", "Risk"),
+        ("portfolio", "📊", "Portfolio"),
+        ("investment", "💼", "Investment"),
+        ("trading", "📈", "Trading")
+    ]
+    
+    # Calculate progress
+    completed = sum(1 for phase, _, _ in phases if status_tracking.get(phase, {}).get("done", False))
+    total = len(phases)
+    progress = completed / total if total > 0 else 0
+    
+    # Compact progress bar
+    st.progress(progress)
+    st.caption(f"{completed}/{total} completed")
+    
+    # Phase status cards - more compact
+    for phase, icon, name in phases:
+        status = status_tracking.get(phase, {"done": False, "awaiting_input": False})
+        
+        if status["done"]:
+            status_class = "status-complete"
+            status_text = "✓"
+        elif status["awaiting_input"]:
+            status_class = "status-pending"
+            status_text = "●"
+        else:
+            status_class = "status-not-started"
+            status_text = "○"
+        
+        st.markdown(f"""
+        <div class="status-card {status_class}">
+            <div style="display: flex; align-items: center; justify-content: space-between;">
+                <span style="font-size: 16px;">{icon}</span>
+                <span style="font-size: 0.85rem; font-weight: 500;">{name}</span>
+                <span style="font-size: 0.75rem; color: #6b7280;">{status_text}</span>
+            </div>
+        </div>
+        """, unsafe_allow_html=True)
+    
+    st.markdown('</div>', unsafe_allow_html=True)
+
+@st.cache_data(ttl=30, show_spinner=False)  # Cache for 30 seconds
+def _run_health_checks_cached(llm: ChatOpenAI) -> Dict[str, Any]:
+    """
+    Run health checks with caching. Results are cached for 30 seconds.
+    This prevents blocking the UI on every render.
+    """
+    try:
+        checks = [
+            OpenAIHealthCheck(llm),
+            YFinanceHealthCheck()
+        ]
+        composite = CompositeHealthCheck(checks)
+        results = composite.check_all()
+        overall = composite.get_overall_status()
+        
+        return {
+            "results": results,
+            "overall": overall,
+            "status": "completed"
+        }
+    except Exception as e:
+        return {
+            "error": str(e),
+            "status": "error"
+        }
+
+def render_health_check(llm: ChatOpenAI):
+    """
+    Render health check status in sidebar with caching.
+    
+    Health checks are cached for 30 seconds to avoid blocking the UI.
+    Set ENABLE_HEALTH_CHECKS=false to disable health checks entirely.
+    """
+    # Check if health checks are disabled
+    enable_health_checks = os.getenv("ENABLE_HEALTH_CHECKS", "true").lower() == "true"
+    if not enable_health_checks:
+        return  # Skip health checks entirely
+    
+    st.markdown('<div class="sidebar-section">', unsafe_allow_html=True)
+    st.markdown("### 🏥 System Health")
+    
+    try:
+        # Get cached health check results (will only run if cache expired)
+        # Cache TTL is 30 seconds - see @st.cache_data decorator
+        health_data = _run_health_checks_cached(llm)
+        
+        if health_data.get("status") == "completed":
+            results = health_data.get("results", {})
+            overall = health_data.get("overall")
+            show_health_status(results, overall)
+        else:
+            st.caption(f"Health: {health_data.get('error', 'Unknown error')}")
+    except Exception as e:
+        st.caption(f"Health: {str(e)}")
+    
+    st.markdown('</div>', unsafe_allow_html=True)
+
+def show_health_status(results: Dict, overall: HealthStatus):
+    """Helper to display health status"""
+    status_colors = {
+        HealthStatus.HEALTHY: ("#10b981", "healthy"),
+        HealthStatus.DEGRADED: ("#f59e0b", "degraded"),
+        HealthStatus.UNHEALTHY: ("#ef4444", "unhealthy")
+    }
+    color, status_class = status_colors.get(overall, ("#9ca3af", "unknown"))
+    
+    st.markdown(f"""
+    <div style="display: flex; align-items: center; margin-bottom: 0.5rem;">
+        <span class="health-indicator health-{status_class}"></span>
+        <span style="font-size: 0.9rem; font-weight: 500;">{overall.value.title()}</span>
+    </div>
+    """, unsafe_allow_html=True)
+    
+    # Individual checks - compact
+    with st.expander("Details", expanded=False):
+        for name, result in results.items():
+            check_color, check_class = status_colors.get(result.status, ("#9ca3af", "unknown"))
+            response_time = f" {result.response_time_ms:.0f}ms" if result.response_time_ms else ""
+            st.markdown(f"""
+            <div style="margin: 0.25rem 0; font-size: 0.85rem;">
+                <span class="health-indicator health-{check_class}"></span>
+                <strong>{name.title()}:</strong> {result.status.value}{response_time}
+            </div>
+            """, unsafe_allow_html=True)
+
+def render_monitoring():
+    """Render monitoring metrics in sidebar"""
+    st.markdown('<div class="sidebar-section">', unsafe_allow_html=True)
+    st.markdown("### 📈 Performance Metrics")
+    
+    try:
+        metrics = get_metrics_registry()
+        all_metrics = metrics.get_all_metrics()
+        
+        # Display key metrics - compact
+        if all_metrics:
+            # Counters
+            counters = {k.replace("counter_", ""): v for k, v in all_metrics.items() if k.startswith("counter_")}
+            if counters:
+                with st.expander("Counters", expanded=False):
+                    for name, value in list(counters.items())[:3]:  # Show top 3
+                        st.write(f"**{name.replace('_', ' ').title()}:** {int(value)}")
+            
+            # Timers
+            timers = {k.replace("timer_", ""): v for k, v in all_metrics.items() if k.startswith("timer_")}
+            if timers:
+                with st.expander("Performance", expanded=False):
+                    for name, stats in list(timers.items())[:2]:  # Show top 2
+                        if isinstance(stats, dict) and "mean" in stats:
+                            st.write(f"**{name.replace('_', ' ').title()}:** {stats['mean']*1000:.0f}ms")
+        else:
+            st.caption("No metrics yet")
+    except Exception as e:
+        st.caption(f"Metrics: {str(e)}")
+    
+    st.markdown('</div>', unsafe_allow_html=True)
+
+def render_product_overview():
+    """Render product overview at the top"""
+    st.markdown("""
+    <div class="main-header">
+        <h1>🤖 AI Robo-Advisor</h1>
+        <p>Your intelligent investment planning assistant powered by AI</p>
+    </div>
+    """, unsafe_allow_html=True)
+    
+    # Feature highlights
+    col1, col2, col3, col4 = st.columns(4)
+    with col1:
+        st.markdown("**🎯 Risk Assessment**")
+        st.caption("Personalized risk profiling")
+    with col2:
+        st.markdown("**📊 Portfolio Optimization**")
+        st.caption("Mean-variance optimization")
+    with col3:
+        st.markdown("**💼 Fund Selection**")
+        st.caption("AI-powered fund analysis")
+    with col4:
+        st.markdown("**📈 Trade Execution**")
+        st.caption("Ready-to-execute orders")
+
+# Removed escape_html_for_display - we'll use native markdown rendering instead
+
+def render_chat_messages(state: AgentState):
+    """Render chat messages with AI on top"""
+    messages = state.get("messages", [])
+    
+    if not messages:
+        st.info("👋 Welcome! Start by saying 'hello' or 'proceed' to begin your investment planning journey.")
         return
     
-    st.markdown('<div class="section-header">🎯 Risk Assessment</div>', unsafe_allow_html=True)
+    # Get last AI message (most recent)
+    last_ai = None
+    for msg in reversed(messages):
+        if msg.get("role") == "ai":
+            last_ai = msg
+            break
     
-    # Display risk allocation if available
+    # Display last AI message prominently
+    if last_ai:
+        content = last_ai.get("content", "")
+        # Render in modern card design
+        st.markdown('<div class="ai-message-card">', unsafe_allow_html=True)
+        st.markdown('<div class="message-header">🤖 AI Assistant</div>', unsafe_allow_html=True)
+        st.markdown(content)  # Native markdown rendering
+        st.markdown('</div>', unsafe_allow_html=True)
+
+def render_conversation_history(state: AgentState):
+    """Render full conversation history in collapsible section"""
+    messages = state.get("messages", [])
+    
+    if not messages:
+        return
+    
+    with st.expander("💬 Conversation History", expanded=False):
+        st.markdown('<div style="max-height: 300px; overflow-y: auto; padding: 0.5rem;">', unsafe_allow_html=True)
+        
+        for msg in messages:
+            role = msg.get("role", "")
+            content = msg.get("content", "")
+            
+            if role == "user":
+                st.markdown('<div class="user-message-card">', unsafe_allow_html=True)
+                st.markdown('<div class="message-header user-message-header">👤 You</div>', unsafe_allow_html=True)
+                st.markdown(content)
+                st.markdown('</div>', unsafe_allow_html=True)
+            elif role == "ai":
+                st.markdown('<div class="ai-message-card">', unsafe_allow_html=True)
+                st.markdown('<div class="message-header">🤖 AI Assistant</div>', unsafe_allow_html=True)
+                st.markdown(content)
+                st.markdown('</div>', unsafe_allow_html=True)
+        
+        st.markdown('</div>', unsafe_allow_html=True)
+        st.caption(f"Total messages: {len(messages)}")
+
+def render_results_panel(state: AgentState):
+    """Render results in the right column with better UX"""
+    # Use tabs for better organization
+    tab1, tab2, tab3, tab4 = st.tabs(["🎯 Risk", "📊 Portfolio", "💼 Investment", "📈 Trading"])
+    
+    with tab1:
+        render_risk_results(state)
+    
+    with tab2:
+        render_portfolio_results(state)
+    
+    with tab3:
+        render_investment_results(state)
+    
+    with tab4:
+        render_trading_results(state)
+
+def render_risk_results(state: AgentState):
+    """Render risk assessment results"""
+    if not state.get("risk") and not state.get("answers"):
+        st.info("Risk assessment not started yet. Complete the risk assessment phase to see results here.")
+        return
+    
     if state.get("risk"):
         col1, col2 = st.columns(2)
         
         with col1:
-            st.markdown("**Risk Allocation:**")
             equity = state["risk"].get("equity", 0)
             bond = state["risk"].get("bond", 0)
             
-            # Create a simple bar chart for risk allocation
             fig = go.Figure(data=[
                 go.Bar(name='', x=['Equity', 'Bonds'], y=[equity, bond], 
-                      marker_color=['#2ecc71', '#3498db'])
+                      marker_color=['#667eea', '#764ba2'])
             ])
             fig.update_layout(
                 title="Asset Allocation",
                 yaxis_title="Percentage",
                 height=300,
-                showlegend=False
+                showlegend=False,
+                template="plotly_white"
             )
-            st.plotly_chart(fig, config={'displayModeBar': False}, width='stretch')
+            st.plotly_chart(fig, width="stretch", config={'displayModeBar': False})
         
         with col2:
-            st.markdown("**Allocation Details:**")
-            st.metric("Equity Allocation", f"{equity:.1%}")
-            st.metric("Bond Allocation", f"{bond:.1%}")
+            st.markdown("### Allocation Details")
+            st.metric("Equity", f"{equity:.1%}")
+            st.metric("Bonds", f"{bond:.1%}")
     
-    # Display questionnaire answers if available
     if state.get("answers"):
-        st.markdown("**Questionnaire Answers:**")
-        
-        # Create a collapsible section for answers
-        with st.expander("View Questionnaire Responses", expanded=False):
+        with st.expander("📝 Questionnaire Responses", expanded=False):
             for qid, answer in state["answers"].items():
                 if isinstance(answer, dict) and "selected_label" in answer:
                     st.write(f"**{qid.upper()}:** {answer['selected_label']}")
-                    if "raw_user_text" in answer and answer["raw_user_text"]:
-                        st.caption(f"User input: \"{answer['raw_user_text']}\"")
 
-def display_portfolio(state: AgentState):
-    """Display portfolio allocation with pie chart and table"""
+def render_portfolio_results(state: AgentState):
+    """Render portfolio allocation results"""
     if not state.get("portfolio"):
+        st.info("Portfolio optimization not completed yet. Complete the portfolio phase to see results here.")
         return
-    
-    st.markdown('<div class="section-header">📊 Portfolio Allocation</div>', unsafe_allow_html=True)
     
     portfolio = state["portfolio"]
+    weights = {k: v for k, v in portfolio.items() if isinstance(v, (int, float)) and v > 0}
     
-    # Extract portfolio weights
-    if isinstance(portfolio, dict):
-        weights = {k: v for k, v in portfolio.items() if isinstance(v, (int, float)) and v > 0}
+    if weights:
+        col1, col2 = st.columns([2, 1])
         
-        if weights:
-            col1, col2 = st.columns([2, 1])
+        with col1:
+            fig = go.Figure(data=[go.Pie(
+                labels=list(weights.keys()),
+                values=list(weights.values()),
+                hole=0.4,
+                marker_colors=px.colors.qualitative.Set3
+            )])
+            fig.update_layout(
+                title="Portfolio Allocation",
+                height=400,
+                template="plotly_white"
+            )
+            st.plotly_chart(fig, width="stretch", config={'displayModeBar': False})
+        
+        with col2:
+            st.markdown("### Details")
+            df = pd.DataFrame(list(weights.items()), columns=['Asset Class', 'Weight'])
+            df['Weight'] = df['Weight'].apply(lambda x: f"{x:.1%}")
+            st.dataframe(df, width="stretch", hide_index=True)
             
-            with col1:
-                # Create pie chart
-                labels = list(weights.keys())
-                values = list(weights.values())
-                
-                fig = go.Figure(data=[go.Pie(name='', labels=labels, values=values, hole=0.3)])
-                fig.update_layout(
-                    title="Portfolio Allocation",
-                    height=400,
-                    showlegend=True
-                )
-                st.plotly_chart(fig, config={'displayModeBar': False}, width='stretch')
-            
-            with col2:
-                # Display portfolio table
-                st.markdown("**Allocation Details:**")
-                df = pd.DataFrame(list(weights.items()), columns=['Asset Class', 'Weight'])
-                df['Weight'] = df['Weight'].apply(lambda x: f"{x:.1%}")
-                st.dataframe(df, width='stretch', hide_index=True)
-                
-                # Display portfolio parameters if available
-                if "lambda" in portfolio:
-                    st.metric("Risk Aversion (λ)", f"{portfolio['lambda']:.2f}")
-                if "cash_reserve" in portfolio:
-                    st.metric("Cash Reserve", f"{portfolio['cash_reserve']:.1%}")
+            if "lambda" in portfolio:
+                st.metric("Risk Aversion (λ)", f"{portfolio['lambda']:.2f}")
+            if "cash_reserve" in portfolio:
+                st.metric("Cash Reserve", f"{portfolio['cash_reserve']:.1%}")
 
-def display_investment(state: AgentState):
-    """Display investment fund selections"""
+def render_investment_results(state: AgentState):
+    """Render investment fund selections"""
     investment = state.get("investment")
     if not investment or not isinstance(investment, dict):
+        st.info("Fund selection not completed yet. Complete the investment phase to see results here.")
         return
     
-    st.markdown('<div class="section-header">💼 Investment Selection</div>', unsafe_allow_html=True)
+    table_data = []
+    for asset_class, fund_info in investment.items():
+        if isinstance(fund_info, dict) and "ticker" in fund_info:
+            table_data.append({
+                "Asset Class": asset_class.replace('_', ' ').title(),
+                "Fund": fund_info.get('ticker', 'N/A'),
+                "Weight": f"{fund_info.get('weight', 0):.1%}",
+                "Criteria": fund_info.get('criteria_used', 'N/A')
+            })
     
-    if isinstance(investment, dict):
-        # Create a comprehensive table showing asset class, fund details, and weights
-        # The investment data structure is: {asset_class: {weight, ticker, analysis, selection_reason, criteria_used}}
+    if table_data:
+        df = pd.DataFrame(table_data)
+        st.dataframe(df, width="stretch", hide_index=True)
         
-        # Prepare data for the table
-        table_data = []
-        
+        # Detailed view
+        st.markdown("### Fund Details")
         for asset_class, fund_info in investment.items():
             if isinstance(fund_info, dict) and "ticker" in fund_info:
-                table_data.append({
-                    "Asset Class": asset_class.replace('_', ' ').title(),
-                    "Fund Symbol": fund_info.get('ticker', 'N/A'),
-                    "Weight": f"{fund_info.get('weight', 0):.1%}",
-                    "Selection Reason": fund_info.get('selection_reason', 'N/A'),
-                    "Criteria Used": fund_info.get('criteria_used', 'N/A')
-                })
-        
-        if table_data:
-            # Display the main table
-            df = pd.DataFrame(table_data)
-            st.dataframe(df, width='stretch', hide_index=True)
-            
-            # Display additional details in expandable sections
-            st.markdown("**Detailed Fund Information:**")
-            for asset_class, fund_info in investment.items():
-                if isinstance(fund_info, dict) and "ticker" in fund_info:
-                    with st.expander(f"{asset_class.replace('_', ' ').title()} - {fund_info.get('ticker', 'N/A')}", expanded=False):
-                        col1, col2 = st.columns(2)
-                        
-                        with col1:
-                            st.write(f"**Ticker:** {fund_info.get('ticker', 'N/A')}")
-                            st.write(f"**Weight:** {fund_info.get('weight', 0):.1%}")
-                            st.write(f"**Selection Reason:** {fund_info.get('selection_reason', 'N/A')}")
-                        
-                        with col2:
-                            st.write(f"**Criteria Used:** {fund_info.get('criteria_used', 'N/A')}")
-                            if "analysis" in fund_info and fund_info["analysis"]:
-                                st.write(f"**Analysis:** {fund_info['analysis']}")
+                with st.expander(f"{asset_class.replace('_', ' ').title()} - {fund_info.get('ticker', 'N/A')}", expanded=False):
+                    col1, col2 = st.columns(2)
+                    with col1:
+                        st.write(f"**Ticker:** {fund_info.get('ticker', 'N/A')}")
+                        st.write(f"**Weight:** {fund_info.get('weight', 0):.1%}")
+                    with col2:
+                        st.write(f"**Reason:** {fund_info.get('selection_reason', 'N/A')}")
+                        if "analysis" in fund_info:
+                            st.write(f"**Analysis:** {fund_info['analysis'][:200]}...")
 
-def display_trading_requests(state: AgentState):
-    """Display trading requests in table format"""
+def render_trading_results(state: AgentState):
+    """Render trading requests"""
     if not state.get("trading_requests"):
+        st.info("Trading requests not generated yet. Complete the trading phase to see results here.")
         return
-    
-    st.markdown('<div class="section-header">📈 Trading Requests</div>', unsafe_allow_html=True)
     
     trading_requests = state["trading_requests"]
     
@@ -337,7 +771,6 @@ def display_trading_requests(state: AgentState):
         requests = trading_requests["trading_requests"]
         
         if isinstance(requests, list) and requests:
-            # Convert to DataFrame for better display
             df_data = []
             for req in requests:
                 if isinstance(req, dict):
@@ -346,130 +779,55 @@ def display_trading_requests(state: AgentState):
                         "Ticker": req.get("Ticker", req.get("ticker", "N/A")),
                         "Shares": req.get("Shares", req.get("shares", "N/A")),
                         "Price": f"${req.get('Price', req.get('price', 0)):.2f}",
-                        "Proceeds": f"${req.get('Proceeds', req.get('proceeds', 0)):.2f}",
-                        "Realized Gain": f"${req.get('RealizedGain', req.get('realized_gain', 0)):.2f}"
+                        "Proceeds": f"${req.get('Proceeds', req.get('proceeds', 0)):.2f}"
                     })
             
             if df_data:
                 df = pd.DataFrame(df_data)
-                st.dataframe(df, width='stretch', hide_index=True)
+                st.dataframe(df, width="stretch", hide_index=True)
         
-        # Display summary information
         if "summary" in trading_requests:
             summary = trading_requests["summary"]
             if isinstance(summary, dict):
                 col1, col2, col3 = st.columns(3)
-                
                 with col1:
                     if "total_value" in summary:
                         st.metric("Total Value", f"${summary['total_value']:,.2f}")
-                
                 with col2:
                     if "num_trades" in summary:
-                        st.metric("Number of Trades", summary["num_trades"])
-                
+                        st.metric("Trades", summary["num_trades"])
                 with col3:
                     if "estimated_cost" in summary:
-                        st.metric("Estimated Cost", f"${summary['estimated_cost']:,.2f}")
-
-def display_status_tracking(state: AgentState):
-    """Display the current status of each phase"""
-    st.markdown('<div class="section-header">📋 Process Status</div>', unsafe_allow_html=True)
-    
-    status_tracking = state.get("status_tracking", {})
-    
-    phases = [
-        ("risk", "🎯 Risk Assessment", "Complete risk questionnaire to determine your risk tolerance and investment horizon"),
-        ("portfolio", "📊 Portfolio Optimization", "Optimize asset allocation based on your risk profile and preferences"),
-        ("investment", "💼 Fund Selection", "Select specific funds and ETFs for each asset class in your portfolio"),
-        ("trading", "📈 Trading Requests", "Generate executable trading orders to implement your investment strategy")
-    ]
-    
-    cols = st.columns(len(phases))
-    
-    for i, (phase, label, description) in enumerate(phases):
-        with cols[i]:
-            status = status_tracking.get(phase, {"done": False, "awaiting_input": False})
-            
-            if status["done"]:
-                status_class = "status-complete"
-                status_text = "Complete"
-            elif status["awaiting_input"]:
-                status_class = "status-pending"
-                status_text = "In Progress"
-            else:
-                status_class = "status-not-started"
-                status_text = "Not Started"
-            
-            st.markdown(f"""
-            <div class="metric-card">
-                <div>
-                    <span class="status-indicator {status_class}"></span>
-                    <strong>{label}</strong>
-                </div>
-                <div style="margin-top: 0.5rem; color: #666;">
-                    {status_text}
-                </div>
-                <div style="margin-top: 0.5rem; font-size: 0.85rem; color: #888;">
-                    {description}
-                </div>
-            </div>
-            """, unsafe_allow_html=True)
-
-def display_messages(state: AgentState):
-    """Display message history in a collapsible section"""
-    messages = state.get("messages", [])
-    
-    if not messages:
-        return
-    
-    st.markdown('<div class="section-header">💬 Conversation History</div>', unsafe_allow_html=True)
-    
-    # Limit to last 15 messages for better performance
-    recent_messages = messages[-15:] if len(messages) > 15 else messages
-    
-    with st.expander(f"View Message History ({len(recent_messages)} of {len(messages)} messages)", expanded=False):
-        st.markdown('<div class="message-container">', unsafe_allow_html=True)
-        
-        for i, message in enumerate(recent_messages):
-            role = message.get("role", "")
-            content = message.get("content", "")
-            
-            if role == "user":
-                st.markdown(f'<div class="user-message"><strong>You:</strong> {content}</div>', unsafe_allow_html=True)
-            elif role == "ai":
-                st.markdown(f'<div class="ai-message"><strong>AI:</strong> {content}</div>', unsafe_allow_html=True)
-        
-        st.markdown('</div>', unsafe_allow_html=True)
-        
-        # Show message count info
-        if len(messages) > 15:
-            st.caption(f"Showing last 15 messages. Total conversation: {len(messages)} messages.")
+                        st.metric("Est. Cost", f"${summary['estimated_cost']:,.2f}")
 
 def main():
     """Main Streamlit application"""
     # Initialize session state
     initialize_session_state()
     
-    # Header
-    st.markdown('<div class="main-header">🤖 Robo-Advisor</div>', unsafe_allow_html=True)
-    
-    # Sidebar with reset button
+    # Sidebar - compact
     with st.sidebar:
-        st.markdown("### Controls")
-        if st.button("🔄 Reset Application", type="primary", width='stretch'):
+        st.markdown("### 🤖 Robo-Advisor")
+        
+        # Reset button - compact
+        if st.button("🔄 Reset", type="primary", width="stretch"):
             reset_app()
         
-        st.markdown("### Current Status")
-        status_tracking = st.session_state.state.get("status_tracking", {})
+        st.markdown("---")
         
-        # Only count the 4 main phases (exclude reviewer)
-        main_phases = ["risk", "portfolio", "investment", "trading"]
-        completed_phases = sum(1 for phase in main_phases if status_tracking.get(phase, {}).get("done", False))
-        total_phases = len(main_phases)
+        # Status bar
+        render_status_bar(st.session_state.state)
         
-        st.progress(completed_phases / total_phases if total_phases > 0 else 0)
-        st.caption(f"Completed: {completed_phases}/{total_phases} phases")
+        # Health check
+        if 'llm' in st.session_state:
+            render_health_check(st.session_state.llm)
+        
+        # Monitoring
+        render_monitoring()
+    
+    # Main content
+    # Product overview
+    render_product_overview()
     
     # Initialize the app if not done
     if not st.session_state.initialized:
@@ -477,36 +835,26 @@ def main():
         st.session_state.initialized = True
         st.rerun()
     
-    # Main content area - side by side layout
-    col1, col2 = st.columns([1, 1])
+    # Two column layout
+    col1, col2 = st.columns([1.2, 1])
     
     with col1:
-        # Chat header
-        st.markdown("### 💬 Chat with the Robo-Advisor")
+        st.markdown("#### 💬 Chat")
         
-        # Display current AI response FIRST (above input box)
-        messages = st.session_state.state.get("messages", [])
-        if messages:
-            last_ai_message = None
-            for message in reversed(messages):
-                if message.get("role") == "ai":
-                    last_ai_message = message
-                    break
-            
-            if last_ai_message:
-                st.markdown("### 🤖 AI Assistant")
-                st.markdown(last_ai_message["content"])
+        # Chat messages (AI on top)
+        render_chat_messages(st.session_state.state)
         
-        # Message input BELOW the AI response
+        # User input - compact
         # Use a form to handle input properly
         with st.form("chat_form", clear_on_submit=True):
             user_input = st.text_input(
-                "Type your message here:",
-                placeholder="Ask about risk assessment, portfolio optimization, or investment selection...",
-                key="user_input"
+                "Your message:",
+                placeholder="Type your message...",
+                key="user_input",
+                label_visibility="collapsed"
             )
             
-            submitted = st.form_submit_button("Send", type="primary")
+            submitted = st.form_submit_button("Send", type="primary", width="stretch")
         
         # Display input warning below the form if there is one
         if 'input_warning' in st.session_state:
@@ -539,26 +887,12 @@ def main():
             # Rerun to refresh the UI
             st.rerun()
         
-        # Display status tracking below the input
-        display_status_tracking(st.session_state.state)
-        
-        # Display messages in collapsible section
-        st.markdown("---")
-        display_messages(st.session_state.state)
+        # Collapsible sections
+        render_conversation_history(st.session_state.state)
     
     with col2:
-        # Display all data sections (charts and tables) in collapsible sections
-        with st.expander("📊 Risk Assessment", expanded=True):
-            display_risk_assessment(st.session_state.state)
-        
-        with st.expander("💼 Portfolio Allocation", expanded=True):
-            display_portfolio(st.session_state.state)
-        
-        with st.expander("📈 Investment Selection", expanded=True):
-            display_investment(st.session_state.state)
-        
-        with st.expander("💰 Trading Requests", expanded=True):
-            display_trading_requests(st.session_state.state)
+        st.markdown("### 📊 Results & Analysis")
+        render_results_panel(st.session_state.state)
 
 if __name__ == "__main__":
     main()

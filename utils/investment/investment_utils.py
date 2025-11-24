@@ -425,20 +425,35 @@ class InvestmentUtils:
             Current price as float. Returns None if fetch fails.
         """
         try:
-            # Fetch ticker data
-            fund = yf.Ticker(ticker)
+            from operation.retry.retry import retry_with_backoff
+            from operation.retry.retry_config import YFINANCE_RETRY_CONFIG
             
-            # Get latest close price (last trading day)
-            hist = fund.history(period="1d")
-            if not hist.empty:
-                price = float(hist['Close'].iloc[-1])
-                return price
-            else:
-                # Fallback: try to get current price from info
-                info = fund.info
-                price = info.get('regularMarketPrice') or info.get('currentPrice')
-                return float(price) if price else None
+            @retry_with_backoff(
+                max_attempts=YFINANCE_RETRY_CONFIG.max_attempts,
+                initial_delay=YFINANCE_RETRY_CONFIG.initial_delay,
+                max_delay=YFINANCE_RETRY_CONFIG.max_delay,
+                multiplier=YFINANCE_RETRY_CONFIG.multiplier,
+                jitter=YFINANCE_RETRY_CONFIG.jitter,
+                retryable_exceptions=YFINANCE_RETRY_CONFIG.retryable_exceptions,
+                strategy=YFINANCE_RETRY_CONFIG.strategy
+            )
+            def _fetch_price():
+                # Fetch ticker data
+                fund = yf.Ticker(ticker)
+                # Get latest close price (last trading day)
+                hist = fund.history(period="1d")
+                if not hist.empty:
+                    return float(hist['Close'].iloc[-1])
+                else:
+                    # Fallback: try to get current price from info
+                    info = fund.info
+                    price = info.get('regularMarketPrice') or info.get('currentPrice')
+                    return float(price) if price else None
+            
+            return _fetch_price()
                 
         except Exception as e:
-            print(f"Error fetching price for {ticker}: {e}")
+            import logging
+            logger = logging.getLogger(__name__)
+            logger.warning(f"Error fetching price for {ticker}: {e}")
             return None

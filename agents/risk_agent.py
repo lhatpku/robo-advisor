@@ -80,10 +80,16 @@ User message: "{last_user_msg}"
 Classify the intent and extract equity value if applicable."""
 
         try:
-            intent = self._structured_llm.invoke([
+            prompt = [
                 {"role": "system", "content": system},
                 {"role": "user", "content": user_prompt}
-            ])
+            ]
+            
+            intent = self._invoke_llm_with_retry(
+                self._structured_llm,
+                prompt,
+                operation_name="risk_classify_intent"
+            )
             
             # Normalize return
             if isinstance(intent, dict):
@@ -95,7 +101,8 @@ Classify the intent and extract equity value if applicable."""
             else:
                 return RiskIntent(action="unknown", equity_value=None, reply="")
                 
-        except Exception:
+        except Exception as e:
+            self.logger.error(f"Error classifying risk intent: {e}", exc_info=True)
             return RiskIntent(action="unknown", equity_value=None, reply="")
     
     def _ask_mode_selection(self, state: AgentState) -> AgentState:
@@ -334,16 +341,24 @@ Classify the intent and extract equity value if applicable."""
                 self._set_status(state, awaiting_input=True)
                 return state
         
+        elif action == "unknown":
+            # Unknown intent - repeat last question with clarification
+            if not state.get("risk") and not self._risk_intro_done:
+                # First time, show mode selection
+                self._risk_intro_done = True
+                return self._ask_mode_selection(state)
+            else:
+                # Repeat last question with clarification
+                fallback = RiskMessages.unknown_intent()
+                return self._handle_unknown_intent(state, fallback_message=fallback)
         else:
-            # Unknown action or no risk set yet - show intro or ask for clarification
+            # Fallback for any other action
             if not state.get("risk") and not self._risk_intro_done:
                 self._risk_intro_done = True
                 return self._ask_mode_selection(state)
             else:
-                msg = RiskMessages.unknown_intent()
-                self._add_message(state, "ai", msg)
-                self._set_status(state, awaiting_input=True)
-                return state
+                fallback = RiskMessages.unknown_intent()
+                return self._handle_unknown_intent(state, fallback_message=fallback)
     
     def router(self, state: AgentState) -> str:
         """
