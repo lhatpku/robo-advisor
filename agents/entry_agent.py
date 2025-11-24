@@ -9,14 +9,15 @@ from typing import Dict, Any, Optional
 from langchain_openai import ChatOpenAI
 from state import AgentState
 from prompts.entry_prompts import INTENT_CLASSIFICATION_PROMPT, EntryMessages, EntryIntent
+from .base_agent import BaseAgent
 
 
-class EntryAgent:
+class EntryAgent(BaseAgent):
     """Entry agent that handles user interaction and routing."""
     
     def __init__(self, llm: ChatOpenAI):
         """Initialize the entry agent."""
-        self.llm = llm
+        super().__init__(llm, agent_name="entry")
         self._structured_llm = llm.with_structured_output(EntryIntent).bind(temperature=0.0)
     
     def step(self, state: AgentState) -> AgentState:
@@ -45,10 +46,12 @@ class EntryAgent:
             return self._show_phase_summary(state, next_phase)
         
         # Only act on USER turns
-        if not state.get("messages") or state["messages"][-1].get("role") != "user":
+        if not self._is_user_turn(state):
             return state
         
-        last_user = state["messages"][-1].get("content", "")
+        last_user = self._get_last_user_message(state)
+        if not last_user:
+            return state
         
         # Classify user intent
         intent = self._classify_intent(last_user)
@@ -62,10 +65,7 @@ class EntryAgent:
             return self._handle_learn_more_intent(state, question)
         else:
             # Unknown intent - show help
-            state["messages"].append({
-                "role": "ai",
-                "content": EntryMessages.unclear_intent()
-            })
+            self._add_message(state, "ai", EntryMessages.unclear_intent())
             return state
     
     def _classify_intent(self, user_input: str) -> EntryIntent:
@@ -91,16 +91,10 @@ class EntryAgent:
         """Handle when user wants to learn more about something."""
         # For now, provide a general explanation based on the question
         # In the future, this could use RAG to provide more detailed answers
-        state["messages"].append({
-            "role": "ai",
-            "content": f"Great question: {question}\n\nLet me explain this part of the investment planning process..."
-        })
+        self._add_message(state, "ai", f"Great question: {question}\n\nLet me explain this part of the investment planning process...")
         
         # Ask if they want to proceed
-        state["messages"].append({
-            "role": "ai",
-            "content": "Would you like to proceed to the next phase, or do you have other questions?"
-        })
+        self._add_message(state, "ai", "Would you like to proceed to the next phase, or do you have other questions?")
         
         return state
     
@@ -108,10 +102,7 @@ class EntryAgent:
         """Show summary for a completed phase and ask what to do next."""
         summary_message = EntryMessages.get_stage_summary(completed_phase)
         
-        state["messages"].append({
-            "role": "ai",
-            "content": summary_message
-        })
+        self._add_message(state, "ai", summary_message)
         
         return state
     
@@ -120,7 +111,7 @@ class EntryAgent:
         Router function that determines the next step based on intent flags.
         """
         # If reviewer is awaiting input (e.g., after showing final summary), route to reviewer
-        reviewer_status = state.get("status_tracking", {}).get("reviewer", {})
+        reviewer_status = self._get_status(state, "reviewer")
         if reviewer_status.get("awaiting_input"):
             return "reviewer_agent"
         # Check intent flags in order of phases
@@ -135,3 +126,4 @@ class EntryAgent:
         
         # No intent flags set - stay in entry agent
         return "__end__"
+

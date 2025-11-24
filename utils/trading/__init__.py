@@ -9,9 +9,6 @@ from .rebalance import (
     SoftObjectiveRebalancer
 )
 
-from .trading_agent import TradingAgent
-
 __all__ = [
     'SoftObjectiveRebalancer',
-    'TradingAgent'
 ]

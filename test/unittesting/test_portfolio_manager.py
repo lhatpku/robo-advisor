@@ -8,7 +8,7 @@ sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 import unittest
 import numpy as np
-from portfolio.portfolio_manager import PortfolioManager
+from utils.portfolio.portfolio_manager import PortfolioManager
 
 
 class TestPortfolioManager(unittest.TestCase):

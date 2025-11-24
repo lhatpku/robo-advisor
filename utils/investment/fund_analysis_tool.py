@@ -2,7 +2,7 @@
 from __future__ import annotations
 from typing import Dict, Any, List
 from langchain.tools import tool
-from investment.fund_analyzer import FundAnalyzer
+from utils.investment.fund_analyzer import FundAnalyzer
 
 @tool("analyze_fund_performance")
 def analyze_fund_performance(ticker: str) -> Dict[str, Any]:
@@ -47,7 +47,7 @@ def get_fund_recommendation(asset_class: str, criteria: str = "balanced") -> Dic
         Dictionary containing fund recommendation and analysis
     """
     # Import the centralized asset class funds data
-    from investment.config import get_fund_options
+    from utils.investment.config import get_fund_options
     
     # Get fund options for the asset class from centralized source
     fund_options = get_fund_options(asset_class)

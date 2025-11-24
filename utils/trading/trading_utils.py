@@ -9,9 +9,9 @@ from typing import Dict, Any, List, Optional
 import numpy as np
 from langchain_openai import ChatOpenAI
 from state import AgentState
-from trading.rebalance import SoftObjectiveRebalancer
-from trading.config import DEFAULT_REBALANCE_CONFIG, COVARIANCE_MATRIX_DATA, ASSET_ORDER
-from trading.trading_scenarios import ALL_SCENARIOS, get_scenario_by_index
+from utils.trading.rebalance import SoftObjectiveRebalancer
+from utils.trading.config import DEFAULT_REBALANCE_CONFIG, COVARIANCE_MATRIX_DATA, ASSET_ORDER
+from utils.trading.trading_scenarios import ALL_SCENARIOS, get_scenario_by_index
 from prompts.trading_prompts import TradingMessages
 
 
@@ -24,7 +24,7 @@ class TradingUtils:
     
     def show_scenario_selection(self, state: AgentState) -> AgentState:
         """Show scenario selection options."""
-        from trading.trading_scenarios import _calculate_account_value
+        from utils.trading.trading_scenarios import _calculate_account_value
         
         scenarios_text = "\n\n".join([
             f"{i+1}. {scenario['name']}\n"

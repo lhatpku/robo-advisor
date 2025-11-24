@@ -5,7 +5,7 @@ from typing import List, Dict, Any, Tuple
 import os
 from pathlib import Path
 from langchain.tools import tool
-from risk.config import (
+from utils.risk.config import (
     get_questions, 
     create_glidepath_dataframe,
     create_portfolio_index_dataframe,

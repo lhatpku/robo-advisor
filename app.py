@@ -6,12 +6,12 @@ from dotenv import load_dotenv
 from langchain_openai import ChatOpenAI
 from langgraph.graph import StateGraph, END
 
-from risk.risk_agent import RiskAgent
-from portfolio.portfolio_agent import PortfolioAgent
-from investment.investment_agent import InvestmentAgent
-from trading.trading_agent import TradingAgent
-from entry_agent import EntryAgent
-from reviewer.reviewer_agent import ReviewerAgent
+from agents.entry_agent import EntryAgent
+from agents.risk_agent import RiskAgent
+from agents.portfolio_agent import PortfolioAgent
+from agents.investment_agent import InvestmentAgent
+from agents.trading_agent import TradingAgent
+from agents.reviewer_agent import ReviewerAgent
 from state import AgentState
 
 # ---------------------------

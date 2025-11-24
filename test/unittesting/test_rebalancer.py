@@ -8,7 +8,7 @@ sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 import unittest
 import numpy as np
-from trading.rebalance import SoftObjectiveRebalancer
+from utils.trading.rebalance import SoftObjectiveRebalancer
 
 
 class TestSoftObjectiveRebalancer(unittest.TestCase):

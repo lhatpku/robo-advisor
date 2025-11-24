@@ -1,14 +1,15 @@
-# investment/investment_agent.py
+# agents/investment_agent.py
 from __future__ import annotations
 from typing import Dict, Any, List, Optional, Literal
 from langchain_openai import ChatOpenAI
 from state import AgentState
-from investment.investment_utils import InvestmentUtils
+from utils.investment.investment_utils import InvestmentUtils
 from pydantic import BaseModel, Field
 from prompts.investment_prompts import (
     INTENT_CLASSIFICATION_PROMPT,
     InvestmentMessages
 )
+from .base_agent import BaseAgent
 
 # Intent Classification Model
 class InvestmentIntent(BaseModel):
@@ -37,9 +38,9 @@ class InvestmentIntent(BaseModel):
         default=None,
         description="Fund ticker symbol if action is analyze_fund"
     )
-    
 
-class InvestmentAgent:
+
+class InvestmentAgent(BaseAgent):
     """
     Investment agent that handles the conversion of asset-class portfolios
     into tradeable portfolios with specific funds/ETFs.
@@ -52,7 +53,7 @@ class InvestmentAgent:
         Args:
             llm: ChatOpenAI instance for generating responses
         """
-        self.llm = llm
+        super().__init__(llm, agent_name="investment")
         self.utils = InvestmentUtils(llm)
         
         # Structured LLM for intent classification
@@ -63,22 +64,6 @@ class InvestmentAgent:
         self._investment_edit_mode = False
         self._investment_edit_asset_class = None
         self._investment_edit_options = None
-        
-    def _get_status(self, state: AgentState, agent: str) -> Dict[str, bool]:
-        """Get status tracking for a specific agent."""
-        return state.get("status_tracking", {}).get(agent, {"done": False, "awaiting_input": False})
-    
-    def _set_status(self, state: AgentState, agent: str, done: bool = None, awaiting_input: bool = None) -> None:
-        """Set status tracking for a specific agent."""
-        if "status_tracking" not in state:
-            state["status_tracking"] = {}
-        if agent not in state["status_tracking"]:
-            state["status_tracking"][agent] = {"done": False, "awaiting_input": False}
-        
-        if done is not None:
-            state["status_tracking"][agent]["done"] = done
-        if awaiting_input is not None:
-            state["status_tracking"][agent]["awaiting_input"] = awaiting_input
     
     def _classify_intent(self, user_input: str) -> InvestmentIntent:
         """Classify user intent using LLM with structured output."""
@@ -102,24 +87,23 @@ class InvestmentAgent:
             Updated agent state
         """
         # Initialize global state if first time
-        status = self._get_status(state, "investment")
+        status = self._get_status(state)
         if not status["awaiting_input"] and not status["done"]:
-            self._set_status(state, "investment", awaiting_input=True, done=False)
+            self._set_status(state, awaiting_input=True, done=False)
         
         # Check if portfolio exists
         portfolio = state.get("portfolio", {})
         if not portfolio:
-            state["messages"].append({
-                "role": "ai", 
-                "content": InvestmentMessages.need_portfolio_data()
-            })
+            self._add_message(state, "ai", InvestmentMessages.need_portfolio_data())
             return state
         
         # Only act on USER turns
-        if not state.get("messages") or state["messages"][-1].get("role") != "user":
+        if not self._is_user_turn(state):
             return state
 
-        last_user = state["messages"][-1].get("content", "")
+        last_user = self._get_last_user_message(state)
+        if not last_user:
+            return state
         
         # Special handling for edit mode - if user is selecting a fund option by number
         if self._investment_edit_mode and last_user.isdigit():
@@ -158,10 +142,7 @@ class InvestmentAgent:
             if investment and isinstance(investment, dict) and investment:
                 self.utils.display_investment_portfolio(state, investment)
             else:
-                state["messages"].append({
-                    "role": "ai",
-                    "content": InvestmentMessages.intro_message()
-                })
+                self._add_message(state, "ai", InvestmentMessages.intro_message())
             return state
         
         elif intent.action == "edit_asset_class":
@@ -174,37 +155,25 @@ class InvestmentAgent:
                         self._investment_edit_asset_class = edit_data["asset_class"]
                         self._investment_edit_options = edit_data["options"]
                 else:
-                    state["messages"].append({
-                        "role": "ai",
-                        "content": InvestmentMessages.edit_asset_class_prompt()
-                    })
+                    self._add_message(state, "ai", InvestmentMessages.edit_asset_class_prompt())
             else:
-                state["messages"].append({
-                    "role": "ai",
-                    "content": InvestmentMessages.need_investment_first()
-                })
+                self._add_message(state, "ai", InvestmentMessages.need_investment_first())
             return state
         
         elif intent.action == "analyze_fund":
             if intent.ticker:
                 return self.utils.handle_fund_analysis_request(state, intent.ticker)
             else:
-                state["messages"].append({
-                    "role": "ai",
-                    "content": InvestmentMessages.fund_analysis_prompt()
-                })
+                self._add_message(state, "ai", InvestmentMessages.fund_analysis_prompt())
                 return state
         
         elif intent.action == "proceed":
             if state.get("portfolio") and state.get("investment"):
-                self._set_status(state, "investment", done=True, awaiting_input=False)
+                self._set_status(state, done=True, awaiting_input=False)
 
                 return state
             else:
-                state["messages"].append({
-                    "role": "ai",
-                    "content": InvestmentMessages.need_investment_first()
-                })
+                self._add_message(state, "ai", InvestmentMessages.need_investment_first())
                 return state
         
         else:  # unknown intent
@@ -235,19 +204,15 @@ class InvestmentAgent:
                 self.utils.display_investment_portfolio(state, investment)
             
             # Show help message
-            state["messages"].append({
-                "role": "ai",
-                "content": InvestmentMessages.unclear_intent()
-            })
+            self._add_message(state, "ai", InvestmentMessages.unclear_intent())
             return state
-    
     
     def router(self, state: Dict[str, Any]) -> str:
         """
         Route based on investment agent state.
         """
         # If awaiting input, go to end to wait for user input
-        status = self._get_status(state, "investment")
+        status = self._get_status(state)
         if status["awaiting_input"]:
             return "__end__"
         
@@ -257,3 +222,4 @@ class InvestmentAgent:
         
         # If investment doesn't exist yet, go to end to wait for user input
         return "__end__"
+

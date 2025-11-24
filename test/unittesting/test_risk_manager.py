@@ -7,7 +7,7 @@ import os
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 import unittest
-from risk.risk_manager import RiskManager
+from utils.risk.risk_manager import RiskManager
 
 
 class TestRiskManager(unittest.TestCase):

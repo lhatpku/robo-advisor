@@ -14,9 +14,8 @@ from typing import Dict, Any
 import sys
 import os
 
-# Add parent directory to path to import portfolio config
-sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-from portfolio.config import COVARIANCE_MATRIX_DATA, EXPECTED_RETURNS, ASSET_CLASSES, ASSET_ORDER
+# Import portfolio config
+from utils.portfolio.config import COVARIANCE_MATRIX_DATA, EXPECTED_RETURNS, ASSET_CLASSES, ASSET_ORDER
 
 # =============================================================================
 # REBALANCING CONFIGURATION

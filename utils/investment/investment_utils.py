@@ -7,9 +7,9 @@ separated from the main agent logic for better organization and reusability.
 
 from typing import Dict, Any, List, Optional
 from langchain_openai import ChatOpenAI
-from investment.fund_analyzer import FundAnalyzer
+from utils.investment.fund_analyzer import FundAnalyzer
 import yfinance as yf
-from investment.config import (
+from utils.investment.config import (
     get_fund_options, 
     get_selection_criteria, 
     is_cash_position, 

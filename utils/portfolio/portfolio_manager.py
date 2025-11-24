@@ -6,7 +6,7 @@ import os
 import json
 from langchain.tools import tool
 from langchain_openai import ChatOpenAI
-from portfolio.config import get_expected_returns, get_covariance_matrix, ASSET_CLASSES, get_cash_reserve_constraints, validate_cash_reserve, DEFAULT_LAMBDA, DEFAULT_CASH_RESERVE
+from utils.portfolio.config import get_expected_returns, get_covariance_matrix, ASSET_CLASSES, get_cash_reserve_constraints, validate_cash_reserve, DEFAULT_LAMBDA, DEFAULT_CASH_RESERVE
 
 
 class PortfolioManager:

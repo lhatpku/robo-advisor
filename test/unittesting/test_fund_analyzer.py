@@ -7,7 +7,7 @@ import os
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 import unittest
-from investment.fund_analyzer import FundAnalyzer
+from utils.investment.fund_analyzer import FundAnalyzer
 
 
 class TestFundAnalyzer(unittest.TestCase):

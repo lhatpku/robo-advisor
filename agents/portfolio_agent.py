@@ -1,13 +1,14 @@
-# portfolio/portfolio_agent.py
+# agents/portfolio_agent.py
 from __future__ import annotations
 from typing import Dict, Any, Optional, Literal
 import os
-from portfolio.config import get_expected_returns, get_covariance_matrix, DEFAULT_LAMBDA, DEFAULT_CASH_RESERVE, get_cash_reserve_constraints, validate_cash_reserve
-from portfolio.portfolio_manager import PortfolioManager
+from utils.portfolio.config import get_expected_returns, get_covariance_matrix, DEFAULT_LAMBDA, DEFAULT_CASH_RESERVE, get_cash_reserve_constraints, validate_cash_reserve
+from utils.portfolio.portfolio_manager import PortfolioManager
 from state import AgentState
 from langchain_openai import ChatOpenAI
 from pydantic import BaseModel, Field
 from prompts.portfolio_prompts import INTENT_CLASSIFICATION_PROMPT, PortfolioMessages
+from .base_agent import BaseAgent
 
 
 class PortfolioIntent(BaseModel):
@@ -25,7 +26,7 @@ class PortfolioIntent(BaseModel):
     )
 
 
-class PortfolioAgent:
+class PortfolioAgent(BaseAgent):
     """
     Portfolio management agent that handles portfolio optimization
     and parameter setting based on user input.
@@ -38,30 +39,13 @@ class PortfolioAgent:
         Args:
             llm: ChatOpenAI instance for generating responses
         """
-        self.llm = llm
+        super().__init__(llm, agent_name="portfolio")
         self.portfolio_manager = PortfolioManager(llm)
         self._structured_llm = llm.with_structured_output(PortfolioIntent).bind(temperature=0.0)
         
         # Local parameters that persist across method calls
         self._lambda = DEFAULT_LAMBDA
         self._cash_reserve = DEFAULT_CASH_RESERVE
-        
-    
-    def _get_status(self, state: AgentState, agent: str) -> Dict[str, bool]:
-        """Get status tracking for a specific agent."""
-        return state.get("status_tracking", {}).get(agent, {"done": False, "awaiting_input": False})
-    
-    def _set_status(self, state: AgentState, agent: str, done: bool = None, awaiting_input: bool = None) -> None:
-        """Set status tracking for a specific agent."""
-        if "status_tracking" not in state:
-            state["status_tracking"] = {}
-        if agent not in state["status_tracking"]:
-            state["status_tracking"][agent] = {"done": False, "awaiting_input": False}
-        
-        if done is not None:
-            state["status_tracking"][agent]["done"] = done
-        if awaiting_input is not None:
-            state["status_tracking"][agent]["awaiting_input"] = awaiting_input
     
     def _classify_intent(self, user_input: str) -> PortfolioIntent:
         """Classify user intent using LLM with structured output."""
@@ -86,7 +70,6 @@ class PortfolioAgent:
         lines.append(f"| **Total** | **{total:.2f}%** |")
         return "\n".join(lines)
 
-
     def step(self, state: Dict[str, Any]) -> Dict[str, Any]:
         """
         Main step function for the portfolio agent.
@@ -98,15 +81,15 @@ class PortfolioAgent:
             Updated agent state
         """       
         # Use global state for persistence across graph invocations
-        status = self._get_status(state, "portfolio")
+        status = self._get_status(state)
         if not status["awaiting_input"]:
-            self._set_status(state, "portfolio", awaiting_input=True)
+            self._set_status(state, awaiting_input=True)
         if not status["done"]:
-            self._set_status(state, "portfolio", done=False)
+            self._set_status(state, done=False)
         
         risk = state.get("risk") or {}
         if not risk:
-            state["messages"].append({"role":"ai","content": PortfolioMessages.need_risk_data()})
+            self._add_message(state, "ai", PortfolioMessages.need_risk_data())
             return state
 
         # Use instance variables for current parameters
@@ -117,10 +100,12 @@ class PortfolioAgent:
         min_cash, max_cash = get_cash_reserve_constraints()
         
         # Only act on USER turns
-        if not state.get("messages") or state["messages"][-1].get("role") != "user":
+        if not self._is_user_turn(state):
             return state
 
-        last_user = state["messages"][-1].get("content", "")
+        last_user = self._get_last_user_message(state)
+        if not last_user:
+            return state
         
         # Classify user intent
         intent = self._classify_intent(last_user)
@@ -129,16 +114,10 @@ class PortfolioAgent:
         if intent.action == "set_lambda":
             if intent.lambda_value is not None:
                 self._lambda = intent.lambda_value
-                state["messages"].append({
-                    "role": "ai", 
-                    "content": PortfolioMessages.lambda_set_success(intent.lambda_value, cash_reserve)
-                })
+                self._add_message(state, "ai", PortfolioMessages.lambda_set_success(intent.lambda_value, cash_reserve))
             else:
-                state["messages"].append({
-                    "role": "ai", 
-                    "content": PortfolioMessages.lambda_set_missing_value()
-                })
-            self._set_status(state, "portfolio", awaiting_input=True)
+                self._add_message(state, "ai", PortfolioMessages.lambda_set_missing_value())
+            self._set_status(state, awaiting_input=True)
             return state
             
         elif intent.action == "set_cash":
@@ -146,21 +125,12 @@ class PortfolioAgent:
                 # Validate cash value against constraints
                 if min_cash <= intent.cash_value <= max_cash:
                     self._cash_reserve = intent.cash_value
-                    state["messages"].append({
-                        "role": "ai", 
-                        "content": PortfolioMessages.cash_set_success(intent.cash_value, lam)
-                    })
+                    self._add_message(state, "ai", PortfolioMessages.cash_set_success(intent.cash_value, lam))
                 else:
-                    state["messages"].append({
-                        "role": "ai", 
-                        "content": PortfolioMessages.cash_set_invalid_value(intent.cash_value, min_cash, max_cash)
-                    })
+                    self._add_message(state, "ai", PortfolioMessages.cash_set_invalid_value(intent.cash_value, min_cash, max_cash))
             else:
-                state["messages"].append({
-                    "role": "ai", 
-                    "content": PortfolioMessages.cash_set_missing_value(min_cash, max_cash)
-                })
-            self._set_status(state, "portfolio", awaiting_input=True)
+                self._add_message(state, "ai", PortfolioMessages.cash_set_missing_value(min_cash, max_cash))
+            self._set_status(state, awaiting_input=True)
             return state
             
         elif intent.action == "run_optimization":
@@ -179,54 +149,39 @@ class PortfolioAgent:
                 state["portfolio"] = res
                 note = "" if clamped_cash == cash_reserve else f" (cash_reserve {cash_reserve:.2f} was clamped to {clamped_cash:.2f})"
                 table = self._format_portfolio(res)
-                state["messages"].append({
-                    "role":"ai",
-                    "content": PortfolioMessages.optimization_success(table, note)
-                })
+                self._add_message(state, "ai", PortfolioMessages.optimization_success(table, note))
                 executed_optimizer = True
                 # Set awaiting_input to True to allow review/editing, but not done yet
-                self._set_status(state, "portfolio", awaiting_input=True, done=False)
+                self._set_status(state, awaiting_input=True, done=False)
             else:
-                state["messages"].append({"role":"ai","content": PortfolioMessages.optimization_failed()})
-                self._set_status(state, "portfolio", awaiting_input=True)
+                self._add_message(state, "ai", PortfolioMessages.optimization_failed())
+                self._set_status(state, awaiting_input=True)
             return state
             
         elif intent.action == "review":
             if state.get("portfolio"):
                 # Show current portfolio with editing options
                 table = self._format_portfolio(state["portfolio"])
-                state["messages"].append({
-                    "role":"ai",
-                    "content": PortfolioMessages.review_current_portfolio(table, lam, cash_reserve)
-                })
+                self._add_message(state, "ai", PortfolioMessages.review_current_portfolio(table, lam, cash_reserve))
             else:
                 # Show intro message if no portfolio exists
-                state["messages"].append({
-                    "role":"ai",
-                    "content": PortfolioMessages.intro_message(lam, cash_reserve, max_cash)
-                })
-            self._set_status(state, "portfolio", awaiting_input=True)
+                self._add_message(state, "ai", PortfolioMessages.intro_message(lam, cash_reserve, max_cash))
+            self._set_status(state, awaiting_input=True)
             return state
             
         elif intent.action == "proceed":
             if state.get("portfolio"):
-                self._set_status(state, "portfolio", done=True, awaiting_input=False)
+                self._set_status(state, done=True, awaiting_input=False)
             else:
                 # Show intro message if no portfolio exists
-                state["messages"].append({
-                    "role": "ai",
-                    "content": PortfolioMessages.intro_message(lam, cash_reserve, max_cash)
-                })
-                self._set_status(state, "portfolio", awaiting_input=True)
+                self._add_message(state, "ai", PortfolioMessages.intro_message(lam, cash_reserve, max_cash))
+                self._set_status(state, awaiting_input=True)
             return state
             
         else:  # unknown or unclear intent
             # Show intro message for unclear inputs
-            state["messages"].append({
-                "role":"ai",
-                "content": PortfolioMessages.intro_message(lam, cash_reserve, max_cash)
-            })
-            self._set_status(state, "portfolio", awaiting_input=True)
+            self._add_message(state, "ai", PortfolioMessages.intro_message(lam, cash_reserve, max_cash))
+            self._set_status(state, awaiting_input=True)
             return state
 
     def router(self, state: AgentState) -> str:
@@ -234,7 +189,7 @@ class PortfolioAgent:
         Route based on portfolio agent state.
         """
         # If awaiting input, go to end to wait for user input
-        status = self._get_status(state, "portfolio")
+        status = self._get_status(state)
         if status["awaiting_input"]:
             return "__end__"
         
