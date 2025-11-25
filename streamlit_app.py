@@ -756,8 +756,12 @@ def render_investment_results(state: AgentState):
                         st.write(f"**Weight:** {fund_info.get('weight', 0):.1%}")
                     with col2:
                         st.write(f"**Reason:** {fund_info.get('selection_reason', 'N/A')}")
-                        if "analysis" in fund_info:
-                            st.write(f"**Analysis:** {fund_info['analysis'][:200]}...")
+                        analysis = fund_info.get("analysis")
+                        if isinstance(analysis, str) and analysis.strip():
+                            snippet = analysis[:200]
+                            if len(analysis) > 200:
+                                snippet += "..."
+                            st.write(f"**Analysis:** {snippet}")
 
 def render_trading_results(state: AgentState):
     """Render trading requests"""

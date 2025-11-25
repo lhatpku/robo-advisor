@@ -83,10 +83,16 @@ class ReviewerUtils:
         # Portfolio Construction Summary
         portfolio = state.get("portfolio", {})
         if portfolio and isinstance(portfolio, dict) and len(portfolio) > 0:
-            # Get top 5 asset classes by weight
-            sorted_assets = sorted(portfolio.items(), key=lambda x: x[1], reverse=True)[:5]
-            asset_summary = ", ".join([f"{asset}: {weight:.1f}%" for asset, weight in sorted_assets])
-            summary_parts.append(f"**Portfolio Construction:** {asset_summary}")
+            # Filter numeric weights and convert to %
+            numeric_items = [
+                (asset, weight * 100)
+                for asset, weight in portfolio.items()
+                if isinstance(weight, (int, float)) and weight > 0
+            ]
+            if numeric_items:
+                sorted_assets = sorted(numeric_items, key=lambda x: x[1], reverse=True)[:5]
+                asset_summary = ", ".join([f"{asset}: {weight:.1f}%" for asset, weight in sorted_assets])
+                summary_parts.append(f"**Portfolio Construction:** {asset_summary}")
         
         # Investment Selection Summary
         investment = state.get("investment", {})
