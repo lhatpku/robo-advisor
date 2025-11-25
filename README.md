@@ -893,10 +893,74 @@ coverage report --show-missing
 ### Coverage Documentation
 
 For detailed coverage setup and usage, see:
-- `test/README_COVERAGE.md`: Comprehensive coverage documentation
 - `.coveragerc`: Coverage configuration details
 - `pytest.ini`: Pytest and coverage integration settings
 
 ---
 
-*This robo-advisor represents a complete end-to-end wealth management solution, from risk assessment to trade execution, built with modern AI, optimization techniques, and a beautiful web interface.*
+## 🛠 Troubleshooting & Maintenance Guide
+
+This section captures common operational issues, recommended maintenance tasks, and diagnostic commands to keep the robo-advisor running smoothly.
+
+### Running Tests & Coverage
+
+| Task | Command |
+|------|---------|
+| Run all tests with coverage | `pytest --cov-report=term-missing` |
+| Run only unit tests | `pytest test/unittesting/ --cov-report=term-missing` |
+| Run only user flow tests | `pytest test/userflowtesting/ --cov-report=term-missing` |
+| Generate HTML coverage | `pytest --cov-report=html` then open `htmlcov/index.html` |
+
+**Common Issues**
+- *Tests return `True`/`False`:* Replace returns with assertions (already fixed in current tests).
+- *LLM model warnings:* Use models that support structured outputs (`gpt-4o-mini` recommended).
+
+### Health Checks & Monitoring
+
+| Component | Location | Command |
+|-----------|----------|---------|
+| Health checks | `operation/healthcheck/` | Run via Streamlit sidebar or call health modules directly |
+| Monitoring metrics | `operation/monitoring/` | View logs (see logging section) |
+| Logging config | `operation/logging/logging_config.py` | Adjust log level via `LOG_LEVEL` env var |
+
+**Maintenance Tips**
+- Use cached health checks (`ENABLE_HEALTH_CHECKS=true`) to reduce latency.
+- Enable persistent logging by setting environment variables before starting the app:
+  - `LOG_LEVEL=INFO` (or `DEBUG`, `WARNING`, etc.)
+  - `LOG_FILE=logs/robo_advisor.log` (any writable path)
+  - These variables activate the file handler defined in `operation/logging/logging_config.py`
+- Review the configured log file and console output for agent diagnostics.
+
+### Maintenance Checklist
+
+1. **Weekly**
+   - Run `pytest --cov-report=term-missing`
+   - Review `coverage.xml` or `htmlcov/` for gaps
+   - Check Streamlit UI for any rendering regressions
+
+2. **Monthly**
+   - Update dependencies (`pip install -r requirements.txt --upgrade`)
+   - Verify OpenAI/Yahoo APIs via health checks
+   - Review logs for recurring warnings/errors
+
+3. **Before Releases**
+   - Ensure `.env` values are correct (API keys, model names)
+   - Regenerate coverage reports (HTML + XML)
+   - Run Streamlit app end-to-end (risk → trading)
+
+### Diagnostic Commands
+
+```bash
+# Quick status
+conda info --envs
+
+# Check OpenAI connectivity
+python operation/healthcheck/openai_check.py
+
+# Verify Yahoo Finance access
+python operation/healthcheck/yfinance_check.py
+
+# View latest test coverage summary
+coverage report --show-missing
+```
+
